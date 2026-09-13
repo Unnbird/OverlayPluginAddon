@@ -1,0 +1,15 @@
+# Build results (OverlayPluginAddon.csproj writes to ..\..\out\)
+[Bb]in/
+[Oo]bj/
+out/
+
+# User-specific / IDE files
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Runtime files the addon writes next to itself
+OverlayPluginAddon.status.log
+OverlayPluginAddon.diagnostics.txt

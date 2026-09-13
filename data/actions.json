@@ -1,0 +1,1048 @@
+{
+	"_generator": "tools/Build-ActionData.js - do not hand-edit, re-run the script instead",
+	"_source": "xivanalysis src/data/ACTIONS/root and src/data/STATUSES/root",
+	"_generatedAt": "2026-09-05",
+	"_recast": "Milliseconds the action occupies the GCD. Actions matching the 2500ms default AND scaling with a speed stat are omitted - the consumer assumes those.",
+	"_speedAttribute": "Absent means the recast does not scale with skill/spell speed at all (dance steps). Those intervals must not feed the speed estimate.",
+	"_limitedTo": "On a speed status: the only action ids it hastens. Absent means every GCD the player has.",
+	"baseGcd": 2500,
+	"jobSpeedModifiers": {
+		"MNK": 0.8,
+		"NIN": 0.85
+	},
+	"actions": [
+		{
+			"id": 125,
+			"name": "RAISE",
+			"job": "WHM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 8000
+		},
+		{
+			"id": 128,
+			"name": "REPOSE",
+			"job": "WHM",
+			"recast": 2500,
+			"castTime": 2500
+		},
+		{
+			"id": 139,
+			"name": "HOLY",
+			"job": "WHM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2500
+		},
+		{
+			"id": 141,
+			"name": "FIRE_I",
+			"job": "BLM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2500
+		},
+		{
+			"id": 142,
+			"name": "BLIZZARD_I",
+			"job": "BLM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2500
+		},
+		{
+			"id": 147,
+			"name": "FIRE_II",
+			"job": "BLM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 3000
+		},
+		{
+			"id": 152,
+			"name": "FIRE_III",
+			"job": "BLM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 3500
+		},
+		{
+			"id": 154,
+			"name": "BLIZZARD_III",
+			"job": "BLM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 3500
+		},
+		{
+			"id": 159,
+			"name": "FREEZE",
+			"job": "BLM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2800
+		},
+		{
+			"id": 162,
+			"name": "FLARE",
+			"job": "BLM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 4000
+		},
+		{
+			"id": 173,
+			"name": "RESURRECTION",
+			"job": "SCH",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 8000
+		},
+		{
+			"id": 2259,
+			"name": "TEN",
+			"job": "NIN",
+			"recast": 500
+		},
+		{
+			"id": 2260,
+			"name": "NINJUTSU",
+			"job": "NIN",
+			"recast": 1500
+		},
+		{
+			"id": 2261,
+			"name": "CHI",
+			"job": "NIN",
+			"recast": 500
+		},
+		{
+			"id": 2263,
+			"name": "JIN",
+			"job": "NIN",
+			"recast": 500
+		},
+		{
+			"id": 2265,
+			"name": "FUMA_SHURIKEN",
+			"job": "NIN",
+			"recast": 1500
+		},
+		{
+			"id": 2266,
+			"name": "KATON",
+			"job": "NIN",
+			"recast": 1500
+		},
+		{
+			"id": 2267,
+			"name": "RAITON",
+			"job": "NIN",
+			"recast": 1500
+		},
+		{
+			"id": 2268,
+			"name": "HYOTON",
+			"job": "NIN",
+			"recast": 1500
+		},
+		{
+			"id": 2269,
+			"name": "HUTON",
+			"job": "NIN",
+			"recast": 1500
+		},
+		{
+			"id": 2270,
+			"name": "DOTON",
+			"job": "NIN",
+			"recast": 1500
+		},
+		{
+			"id": 2271,
+			"name": "SUITON",
+			"job": "NIN",
+			"recast": 1500
+		},
+		{
+			"id": 2272,
+			"name": "RABBIT_MEDIUM",
+			"job": "NIN",
+			"recast": 1500
+		},
+		{
+			"id": 3572,
+			"name": "AERO_III",
+			"job": "WHM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2500
+		},
+		{
+			"id": 3576,
+			"name": "BLIZZARD_IV",
+			"job": "BLM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2500
+		},
+		{
+			"id": 3577,
+			"name": "FIRE_IV",
+			"job": "BLM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2800
+		},
+		{
+			"id": 3603,
+			"name": "ASCEND",
+			"job": "AST",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 8000
+		},
+		{
+			"id": 7410,
+			"name": "HEAT_BLAST",
+			"job": "MCH",
+			"recast": 1500
+		},
+		{
+			"id": 7418,
+			"name": "FLAMETHROWER",
+			"job": "MCH",
+			"recast": 2500
+		},
+		{
+			"id": 7505,
+			"name": "VERTHUNDER",
+			"job": "RDM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 5000
+		},
+		{
+			"id": 7507,
+			"name": "VERAERO",
+			"job": "RDM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 5000
+		},
+		{
+			"id": 7509,
+			"name": "SCATTER",
+			"job": "RDM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 5000
+		},
+		{
+			"id": 7523,
+			"name": "VERRAISE",
+			"job": "RDM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 10000
+		},
+		{
+			"id": 7527,
+			"name": "ENCHANTED_RIPOSTE",
+			"job": "RDM",
+			"recast": 1500
+		},
+		{
+			"id": 7528,
+			"name": "ENCHANTED_ZWERCHHAU",
+			"job": "RDM",
+			"recast": 1500
+		},
+		{
+			"id": 7529,
+			"name": "ENCHANTED_REDOUBLEMENT",
+			"job": "RDM",
+			"recast": 2200,
+			"speedAttribute": "SKILL_SPEED"
+		},
+		{
+			"id": 7530,
+			"name": "ENCHANTED_MOULINET",
+			"job": "RDM",
+			"recast": 1500
+		},
+		{
+			"id": 7568,
+			"name": "ESUNA",
+			"job": "ROLE",
+			"recast": 2500
+		},
+		{
+			"id": 15997,
+			"name": "STANDARD_STEP",
+			"job": "DNC",
+			"recast": 1500
+		},
+		{
+			"id": 15998,
+			"name": "TECHNICAL_STEP",
+			"job": "DNC",
+			"recast": 1500
+		},
+		{
+			"id": 15999,
+			"name": "EMBOITE",
+			"job": "DNC",
+			"recast": 1000
+		},
+		{
+			"id": 16000,
+			"name": "ENTRECHAT",
+			"job": "DNC",
+			"recast": 1000
+		},
+		{
+			"id": 16001,
+			"name": "JETE",
+			"job": "DNC",
+			"recast": 1000
+		},
+		{
+			"id": 16002,
+			"name": "PIROUETTE",
+			"job": "DNC",
+			"recast": 1000
+		},
+		{
+			"id": 16003,
+			"name": "STANDARD_FINISH",
+			"job": "DNC",
+			"recast": 1500
+		},
+		{
+			"id": 16004,
+			"name": "TECHNICAL_FINISH",
+			"job": "DNC",
+			"recast": 1500
+		},
+		{
+			"id": 16191,
+			"name": "SINGLE_STANDARD_FINISH",
+			"job": "DNC",
+			"recast": 1500
+		},
+		{
+			"id": 16192,
+			"name": "DOUBLE_STANDARD_FINISH",
+			"job": "DNC",
+			"recast": 1500
+		},
+		{
+			"id": 16193,
+			"name": "SINGLE_TECHNICAL_FINISH",
+			"job": "DNC",
+			"recast": 1500
+		},
+		{
+			"id": 16194,
+			"name": "DOUBLE_TECHNICAL_FINISH",
+			"job": "DNC",
+			"recast": 1500
+		},
+		{
+			"id": 16195,
+			"name": "TRIPLE_TECHNICAL_FINISH",
+			"job": "DNC",
+			"recast": 1500
+		},
+		{
+			"id": 16196,
+			"name": "QUADRUPLE_TECHNICAL_FINISH",
+			"job": "DNC",
+			"recast": 1500
+		},
+		{
+			"id": 16476,
+			"name": "SIX_SIDED_STAR",
+			"job": "MNK",
+			"recast": 5000,
+			"speedAttribute": "SKILL_SPEED"
+		},
+		{
+			"id": 16491,
+			"name": "GOKA_MEKKYAKU",
+			"job": "NIN",
+			"recast": 1500
+		},
+		{
+			"id": 16492,
+			"name": "HYOSHO_RANRYU",
+			"job": "NIN",
+			"recast": 1500
+		},
+		{
+			"id": 16497,
+			"name": "AUTO_CROSSBOW",
+			"job": "MCH",
+			"recast": 2500
+		},
+		{
+			"id": 16498,
+			"name": "DRILL",
+			"job": "MCH",
+			"recast": 2500
+		},
+		{
+			"id": 16499,
+			"name": "BIOBLASTER",
+			"job": "MCH",
+			"recast": 2500
+		},
+		{
+			"id": 16504,
+			"name": "ARM_PUNCH",
+			"job": "MCH",
+			"recast": 2500
+		},
+		{
+			"id": 16505,
+			"name": "DESPAIR",
+			"job": "BLM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 3000
+		},
+		{
+			"id": 16526,
+			"name": "IMPACT",
+			"job": "RDM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 5000
+		},
+		{
+			"id": 18805,
+			"name": "TEN_KASSATSU",
+			"job": "NIN",
+			"recast": 500
+		},
+		{
+			"id": 18806,
+			"name": "CHI_KASSATSU",
+			"job": "NIN",
+			"recast": 500
+		},
+		{
+			"id": 18807,
+			"name": "JIN_KASSATSU",
+			"job": "NIN",
+			"recast": 500
+		},
+		{
+			"id": 18873,
+			"name": "FUMA_SHURIKEN_TCJ_TEN",
+			"job": "NIN",
+			"recast": 1000
+		},
+		{
+			"id": 18874,
+			"name": "FUMA_SHURIKEN_TCJ_CHI",
+			"job": "NIN",
+			"recast": 1000
+		},
+		{
+			"id": 18875,
+			"name": "FUMA_SHURIKEN_TCJ_JIN",
+			"job": "NIN",
+			"recast": 1000
+		},
+		{
+			"id": 18876,
+			"name": "KATON_TCJ",
+			"job": "NIN",
+			"recast": 1000
+		},
+		{
+			"id": 18877,
+			"name": "RAITON_TCJ",
+			"job": "NIN",
+			"recast": 1000
+		},
+		{
+			"id": 18878,
+			"name": "HYOTON_TCJ",
+			"job": "NIN",
+			"recast": 1000
+		},
+		{
+			"id": 18879,
+			"name": "HUTON_TCJ",
+			"job": "NIN",
+			"recast": 1500
+		},
+		{
+			"id": 18880,
+			"name": "DOTON_TCJ",
+			"job": "NIN",
+			"recast": 1500
+		},
+		{
+			"id": 18881,
+			"name": "SUITON_TCJ",
+			"job": "NIN",
+			"recast": 1500
+		},
+		{
+			"id": 24287,
+			"name": "EGEIRO",
+			"job": "SGE",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 8000
+		},
+		{
+			"id": 24290,
+			"name": "EUKRASIA",
+			"job": "SGE",
+			"recast": 1000
+		},
+		{
+			"id": 24291,
+			"name": "EUKRASIAN_DIAGNOSIS",
+			"job": "SGE",
+			"recast": 1500
+		},
+		{
+			"id": 24292,
+			"name": "EUKRASIAN_PROGNOSIS",
+			"job": "SGE",
+			"recast": 1500
+		},
+		{
+			"id": 24293,
+			"name": "EUKRASIAN_DOSIS",
+			"job": "SGE",
+			"recast": 1500
+		},
+		{
+			"id": 24308,
+			"name": "EUKRASIAN_DOSIS_II",
+			"job": "SGE",
+			"recast": 1500
+		},
+		{
+			"id": 24314,
+			"name": "EUKRASIAN_DOSIS_III",
+			"job": "SGE",
+			"recast": 1500
+		},
+		{
+			"id": 24380,
+			"name": "SOUL_SLICE",
+			"job": "RPR",
+			"recast": 2500
+		},
+		{
+			"id": 24381,
+			"name": "SOUL_SCYTHE",
+			"job": "RPR",
+			"recast": 2500
+		},
+		{
+			"id": 24387,
+			"name": "SOULSOW",
+			"job": "RPR",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 5000
+		},
+		{
+			"id": 24395,
+			"name": "VOID_REAPING",
+			"job": "RPR",
+			"recast": 1500
+		},
+		{
+			"id": 24396,
+			"name": "CROSS_REAPING",
+			"job": "RPR",
+			"recast": 1500
+		},
+		{
+			"id": 24397,
+			"name": "GRIM_REAPING",
+			"job": "RPR",
+			"recast": 1500
+		},
+		{
+			"id": 25793,
+			"name": "BLIZZARD_II",
+			"job": "BLM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 3000
+		},
+		{
+			"id": 25794,
+			"name": "HIGH_FIRE_II",
+			"job": "BLM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 3000
+		},
+		{
+			"id": 25795,
+			"name": "HIGH_BLIZZARD_II",
+			"job": "BLM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 3000
+		},
+		{
+			"id": 25798,
+			"name": "SUMMON_CARBUNCLE",
+			"job": "SMN",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2500
+		},
+		{
+			"id": 25814,
+			"name": "RUBY_OUTBURST",
+			"job": "SMN",
+			"recast": 3000,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2800
+		},
+		{
+			"id": 25816,
+			"name": "EMERALD_OUTBURST",
+			"job": "SMN",
+			"recast": 1500
+		},
+		{
+			"id": 25817,
+			"name": "RUBY_RUIN_III",
+			"job": "SMN",
+			"recast": 3000,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2800
+		},
+		{
+			"id": 25819,
+			"name": "EMERALD_RUIN_III",
+			"job": "SMN",
+			"recast": 1500,
+			"speedAttribute": "SPELL_SPEED"
+		},
+		{
+			"id": 25823,
+			"name": "RUBY_RITE",
+			"job": "SMN",
+			"recast": 3000,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2800
+		},
+		{
+			"id": 25825,
+			"name": "EMERALD_RITE",
+			"job": "SMN",
+			"recast": 1500
+		},
+		{
+			"id": 25832,
+			"name": "RUBY_CATASTROPHE",
+			"job": "SMN",
+			"recast": 3000,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2800
+		},
+		{
+			"id": 25834,
+			"name": "EMERALD_CATASTROPHE",
+			"job": "SMN",
+			"recast": 1500
+		},
+		{
+			"id": 25837,
+			"name": "SLIPSTREAM",
+			"job": "SMN",
+			"recast": 3500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 3000
+		},
+		{
+			"id": 25855,
+			"name": "VERTHUNDER_III",
+			"job": "RDM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 5000
+		},
+		{
+			"id": 25856,
+			"name": "VERAERO_III",
+			"job": "RDM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 5000
+		},
+		{
+			"id": 25860,
+			"name": "HOLY_III",
+			"job": "WHM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2500
+		},
+		{
+			"id": 25880,
+			"name": "SLEEP",
+			"job": "ROLE",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2500
+		},
+		{
+			"id": 25883,
+			"name": "GEMSHINE",
+			"job": "SMN",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2500
+		},
+		{
+			"id": 25884,
+			"name": "PRECIOUS_BRILLIANCE",
+			"job": "SMN",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 2500
+		},
+		{
+			"id": 34620,
+			"name": "DREADWINDER",
+			"job": "VPR",
+			"recast": 3000
+		},
+		{
+			"id": 34621,
+			"name": "HUNTERS_COIL",
+			"job": "VPR",
+			"recast": 3000,
+			"speedAttribute": "SKILL_SPEED"
+		},
+		{
+			"id": 34622,
+			"name": "SWIFTSKINS_COIL",
+			"job": "VPR",
+			"recast": 3000,
+			"speedAttribute": "SKILL_SPEED"
+		},
+		{
+			"id": 34623,
+			"name": "PIT_OF_DREAD",
+			"job": "VPR",
+			"recast": 3000
+		},
+		{
+			"id": 34624,
+			"name": "HUNTERS_DEN",
+			"job": "VPR",
+			"recast": 3000,
+			"speedAttribute": "SKILL_SPEED"
+		},
+		{
+			"id": 34625,
+			"name": "SWIFTSKINS_DEN",
+			"job": "VPR",
+			"recast": 3000,
+			"speedAttribute": "SKILL_SPEED"
+		},
+		{
+			"id": 34626,
+			"name": "REAWAKEN",
+			"job": "VPR",
+			"recast": 2200,
+			"speedAttribute": "SKILL_SPEED"
+		},
+		{
+			"id": 34627,
+			"name": "FIRST_GENERATION",
+			"job": "VPR",
+			"recast": 2000,
+			"speedAttribute": "SKILL_SPEED"
+		},
+		{
+			"id": 34628,
+			"name": "SECOND_GENERATION",
+			"job": "VPR",
+			"recast": 2000,
+			"speedAttribute": "SKILL_SPEED"
+		},
+		{
+			"id": 34629,
+			"name": "THIRD_GENERATION",
+			"job": "VPR",
+			"recast": 2000,
+			"speedAttribute": "SKILL_SPEED"
+		},
+		{
+			"id": 34630,
+			"name": "FOURTH_GENERATION",
+			"job": "VPR",
+			"recast": 2000,
+			"speedAttribute": "SKILL_SPEED"
+		},
+		{
+			"id": 34631,
+			"name": "OUROBOROS",
+			"job": "VPR",
+			"recast": 3000,
+			"speedAttribute": "SKILL_SPEED"
+		},
+		{
+			"id": 34633,
+			"name": "UNCOILED_FURY",
+			"job": "VPR",
+			"recast": 3500,
+			"speedAttribute": "SKILL_SPEED"
+		},
+		{
+			"id": 34653,
+			"name": "BLIZZARD_IN_CYAN",
+			"job": "PCT",
+			"recast": 3300,
+			"speedAttribute": "SPELL_SPEED"
+		},
+		{
+			"id": 34654,
+			"name": "STONE_IN_YELLOW",
+			"job": "PCT",
+			"recast": 3300,
+			"speedAttribute": "SPELL_SPEED"
+		},
+		{
+			"id": 34655,
+			"name": "THUNDER_IN_MAGENTA",
+			"job": "PCT",
+			"recast": 3300,
+			"speedAttribute": "SPELL_SPEED"
+		},
+		{
+			"id": 34659,
+			"name": "BLIZZARD_II_IN_CYAN",
+			"job": "PCT",
+			"recast": 3300,
+			"speedAttribute": "SPELL_SPEED"
+		},
+		{
+			"id": 34660,
+			"name": "STONE_II_IN_YELLOW",
+			"job": "PCT",
+			"recast": 3300,
+			"speedAttribute": "SPELL_SPEED"
+		},
+		{
+			"id": 34661,
+			"name": "THUNDER_II_IN_MAGENTA",
+			"job": "PCT",
+			"recast": 3300,
+			"speedAttribute": "SPELL_SPEED"
+		},
+		{
+			"id": 34663,
+			"name": "COMET_IN_BLACK",
+			"job": "PCT",
+			"recast": 3300,
+			"speedAttribute": "SPELL_SPEED"
+		},
+		{
+			"id": 34664,
+			"name": "POM_MOTIF",
+			"job": "PCT",
+			"recast": 4000,
+			"castTime": 3000
+		},
+		{
+			"id": 34665,
+			"name": "WING_MOTIF",
+			"job": "PCT",
+			"recast": 4000,
+			"castTime": 3000
+		},
+		{
+			"id": 34666,
+			"name": "CLAW_MOTIF",
+			"job": "PCT",
+			"recast": 4000,
+			"castTime": 3000
+		},
+		{
+			"id": 34667,
+			"name": "MAW_MOTIF",
+			"job": "PCT",
+			"recast": 4000,
+			"castTime": 3000
+		},
+		{
+			"id": 34668,
+			"name": "HAMMER_MOTIF",
+			"job": "PCT",
+			"recast": 4000,
+			"castTime": 3000
+		},
+		{
+			"id": 34669,
+			"name": "STARRY_SKY_MOTIF",
+			"job": "PCT",
+			"recast": 4000,
+			"castTime": 3000
+		},
+		{
+			"id": 34688,
+			"name": "RAINBOW_DRIP",
+			"job": "PCT",
+			"recast": 6000,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 4000
+		},
+		{
+			"id": 34689,
+			"name": "CREATURE_MOTIF",
+			"job": "PCT",
+			"recast": 4000,
+			"castTime": 3000
+		},
+		{
+			"id": 34690,
+			"name": "WEAPON_MOTIF",
+			"job": "PCT",
+			"recast": 4000,
+			"castTime": 3000
+		},
+		{
+			"id": 34691,
+			"name": "LANDSCAPE_MOTIF",
+			"job": "PCT",
+			"recast": 4000,
+			"castTime": 3000
+		},
+		{
+			"id": 36940,
+			"name": "STEELED_MEDITATION",
+			"job": "MNK",
+			"recast": 1000
+		},
+		{
+			"id": 36942,
+			"name": "FORBIDDEN_MEDITATION",
+			"job": "MNK",
+			"recast": 1000
+		},
+		{
+			"id": 36943,
+			"name": "ENLIGHTENED_MEDITATION",
+			"job": "MNK",
+			"recast": 1000
+		},
+		{
+			"id": 36978,
+			"name": "BLAZING_SHOT",
+			"job": "MCH",
+			"recast": 1500
+		},
+		{
+			"id": 36982,
+			"name": "FULL_METAL_FIELD",
+			"job": "MCH",
+			"recast": 2500
+		},
+		{
+			"id": 36989,
+			"name": "FLARE_STAR",
+			"job": "BLM",
+			"recast": 2500,
+			"speedAttribute": "SPELL_SPEED",
+			"castTime": 3000
+		},
+		{
+			"id": 37006,
+			"name": "GRAND_IMPACT",
+			"job": "RDM",
+			"recast": 2500
+		},
+		{
+			"id": 37034,
+			"name": "EUKRASIAN_PROGNOSIS_II",
+			"job": "SGE",
+			"recast": 1500
+		},
+		{
+			"id": 45960,
+			"name": "MANAFICATION_ENCHANTED_RIPOSTE",
+			"job": "RDM",
+			"recast": 1500
+		},
+		{
+			"id": 45961,
+			"name": "MANAFICATION_ENCHANTED_ZWERCHHAU",
+			"job": "RDM",
+			"recast": 1500
+		},
+		{
+			"id": 45962,
+			"name": "MANAFICATION_ENCHANTED_REDOUBLEMENT",
+			"job": "RDM",
+			"recast": 2200,
+			"speedAttribute": "SKILL_SPEED"
+		}
+	],
+	"speedStatuses": [
+		{
+			"id": 157,
+			"name": "PRESENCE_OF_MIND",
+			"job": "WHM",
+			"speedModifier": 0.8
+		},
+		{
+			"id": 738,
+			"name": "CIRCLE_OF_POWER",
+			"job": "BLM",
+			"speedModifier": 0.85
+		},
+		{
+			"id": 1299,
+			"name": "FUKA",
+			"job": "SAM",
+			"speedModifier": 0.87
+		},
+		{
+			"id": 3669,
+			"name": "SWIFTSCALED",
+			"job": "VPR",
+			"speedModifier": 0.85
+		},
+		{
+			"id": 3689,
+			"name": "INSPIRATION",
+			"job": "PCT",
+			"speedModifier": 0.75,
+			"limitedTo": [
+				34650,
+				34651,
+				34652,
+				34653,
+				34654,
+				34655,
+				34656,
+				34657,
+				34658,
+				34659,
+				34660,
+				34661,
+				34681
+			]
+		}
+	]
+}

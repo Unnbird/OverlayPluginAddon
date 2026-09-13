@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <ProjectGuid>{5B1D7A93-6E24-4C0F-8A71-9D3E2F6B0C48}</ProjectGuid>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyTitle>OverlayPluginAddon</AssemblyTitle>
+    <Product>OverlayPluginAddon</Product>
+    <Copyright>Copyright © 2026 OverlayPluginAddon</Copyright>
+    <OutputPath>..\..\out\$(Configuration)\OverlayPluginAddon\</OutputPath>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>8.0</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Advanced Combat Tracker">
+      <HintPath>..\..\OverlayPlugin\Thirdparty\ACT\Advanced Combat Tracker.exe</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="FFXIV_ACT_Plugin.Common">
+      <HintPath>..\..\OverlayPlugin\Thirdparty\FFXIV_ACT_Plugin\SDK\FFXIV_ACT_Plugin.Common.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\OverlayPlugin\OverlayPlugin.Common\OverlayPlugin.Common.csproj" Private="False" />
+    <ProjectReference Include="..\..\OverlayPlugin\OverlayPlugin.Core\OverlayPlugin.Core.csproj" Private="False" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
+  </ItemGroup>
+</Project>

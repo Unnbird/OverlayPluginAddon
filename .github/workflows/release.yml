@@ -1,0 +1,148 @@
+name: Create OverlayPluginAddon Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'Directory.Build.props'
+
+env:
+  OVERLAYPLUGIN_REPO: OverlayPlugin/OverlayPlugin
+
+jobs:
+  # A push to Directory.Build.props only means a release if the version inside it actually
+  # changed - e.g. a comment-only edit shouldn't cut a new tag.
+  validate_tag:
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.determine_version.outputs.version }}
+      do_release: ${{ steps.check_tag.outputs.do_release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history for all tags
+
+      - name: Determine Version
+        id: determine_version
+        shell: pwsh
+        run: |
+          [xml]$propscontents = Get-Content -Path "Directory.Build.props";
+          $version = $propscontents.Project.PropertyGroup.AssemblyVersion;
+          $version = ($version | Out-String).Trim()
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Check Tag Exists
+        id: check_tag
+        shell: bash
+        run: |
+          if [ $(git tag -l "v${{ steps.determine_version.outputs.version }}") ]; then
+              echo "Existing git tag found. Exiting..."
+              echo "do_release=false" >> $GITHUB_OUTPUT
+          else
+              echo "Version bump detected - ${{ steps.determine_version.outputs.version }}"
+              echo "do_release=true" >> $GITHUB_OUTPUT
+          fi
+
+  create_release:
+    needs: [validate_tag]
+    runs-on: windows-latest
+    if: needs.validate_tag.outputs.do_release == 'true'
+    permissions:
+      contents: write
+    steps:
+      # OverlayPluginAddon.csproj references ..\..\OverlayPlugin\* and writes to ..\..\out\,
+      # so the workspace has to mirror the local dev layout - same as build-artifact.yml.
+      - uses: actions/checkout@v4
+        with:
+          path: OverlayPluginAddon
+          fetch-depth: 0 # Need full history + tags to diff against the previous release
+
+      - name: Resolve OverlayPlugin ref
+        shell: bash
+        run: |
+          ref=$(curl -sSf "https://api.github.com/repos/${{ env.OVERLAYPLUGIN_REPO }}/releases/latest" | jq -r '.tag_name')
+          if [ -z "$ref" ] || [ "$ref" = "null" ]; then
+            echo "Failed to resolve latest OverlayPlugin release" >&2
+            exit 1
+          fi
+          echo "Building against OverlayPlugin $ref"
+          echo "OVERLAYPLUGIN_REF=$ref" >> $GITHUB_ENV
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.OVERLAYPLUGIN_REPO }}
+          ref: ${{ env.OVERLAYPLUGIN_REF }}
+          path: OverlayPlugin
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Check dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ./OverlayPlugin/Thirdparty
+            ./OverlayPlugin/OverlayPlugin.Core/Thirdparty
+            ./OverlayPlugin/DEPS.cache
+          key: ${{ runner.os }}-overlayplugin-${{ env.OVERLAYPLUGIN_REF }}-${{ hashFiles('./OverlayPlugin/tools/fetch_deps.ps1', './OverlayPlugin/DEPS.json', './OverlayPlugin/tools/StripFFXIVClientStructs/StripFFXIVClientStructs/StripFFXIVClientStructs.cs') }}
+          restore-keys: |
+            ${{ runner.os }}-overlayplugin-${{ env.OVERLAYPLUGIN_REF }}-
+            ${{ runner.os }}-overlayplugin-
+
+      - name: Set up msbuild
+        uses: microsoft/setup-msbuild@v2
+
+      # Release configuration only - no need for the CI Debug pass here.
+      - name: Run Build
+        run: .\OverlayPluginAddon\build.bat
+        shell: cmd
+
+      # Before the tag, not after: a release that ships a wrong uptime model is worse than one
+      # that never got cut, and the tag is the part that cannot be taken back cleanly.
+      - name: GCD regression tests
+        run: .\OverlayPluginAddon\tools\Test-Gcd.ps1
+        shell: powershell
+
+      - name: Action category tests
+        run: .\OverlayPluginAddon\tools\Test-ActionCategories.ps1
+        shell: powershell
+
+      - name: Create Tag
+        shell: bash
+        working-directory: OverlayPluginAddon
+        run: git tag "v${{ needs.validate_tag.outputs.version }}" && git push origin "v${{ needs.validate_tag.outputs.version }}"
+
+      # List every commit since the previous release tag - a push can contain several commits,
+      # and only showing the version bump would hide the rest. Runs after Create Tag, so the
+      # new tag is the newest one locally and the previous release is the second entry.
+      - name: Build Release Notes
+        id: release_notes
+        shell: bash
+        working-directory: OverlayPluginAddon
+        run: |
+          tag="v${{ needs.validate_tag.outputs.version }}"
+          prev=$(git tag --sort=-v:refname | sed -n 2p)
+          {
+            echo "notes<<RELEASE_NOTES_EOF"
+            echo "## What's Changed"
+            git log --no-merges --pretty='- %s' "${prev:+$prev..}$tag"
+            if [ -n "$prev" ]; then
+              echo ""
+              echo "**Full Changelog**: ${{ github.server_url }}/${{ github.repository }}/compare/$prev...$tag"
+            fi
+            echo "RELEASE_NOTES_EOF"
+          } >> $GITHUB_OUTPUT
+
+      # The addon's auto-updater downloads exactly this URL shape - see GcdOverlayAddon's
+      # CheckForUpdates - so the tag has to stay v{VERSION} and the asset OverlayPluginAddon-{VERSION}.zip.
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          name: OverlayPluginAddon ${{ needs.validate_tag.outputs.version }}
+          tag: v${{ needs.validate_tag.outputs.version }}
+          body: ${{ steps.release_notes.outputs.notes }}
+          artifacts: out/OverlayPluginAddon-${{ needs.validate_tag.outputs.version }}.zip
+          artifactContentType: application/zip

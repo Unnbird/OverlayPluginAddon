@@ -1,0 +1,143 @@
+name: Build artifact
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - '.github/workflows/build-artifact.yml'
+      - '**/*.cs'
+      - 'data/**'
+      - 'tools/**'
+      - 'OverlayPluginAddon/OverlayPluginAddon.csproj'
+      - 'Directory.Build.props'
+      - 'build.bat'
+      - 'build.ps1'
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+    paths:
+      - '.github/workflows/build-artifact.yml'
+      - '**/*.cs'
+      - 'data/**'
+      - 'tools/**'
+      - 'OverlayPluginAddon/OverlayPluginAddon.csproj'
+      - 'Directory.Build.props'
+      - 'build.bat'
+      - 'build.ps1'
+  workflow_dispatch:
+    inputs:
+      overlayplugin_ref:
+        description: 'OverlayPlugin git ref to build against (blank = latest release)'
+        required: false
+        default: ''
+
+env:
+  OVERLAYPLUGIN_REPO: OverlayPlugin/OverlayPlugin
+
+jobs:
+  # Named for the problem matcher below, which is looked up as matchers/${{ github.job }}.json.
+  msbuild:
+    runs-on: windows-latest
+
+    steps:
+      # OverlayPluginAddon.csproj references ..\..\OverlayPlugin\* and writes to ..\..\out\, so
+      # the workspace has to mirror the local dev layout:
+      #   <workspace>/OverlayPluginAddon  <- this repository
+      #   <workspace>/OverlayPlugin       <- OverlayPlugin source
+      #   <workspace>/out                 <- build output
+      - uses: actions/checkout@v4
+        with:
+          path: OverlayPluginAddon
+
+      - name: Resolve OverlayPlugin ref
+        shell: bash
+        run: |
+          ref="${{ github.event.inputs.overlayplugin_ref }}"
+          if [ -z "$ref" ]; then
+            ref=$(curl -sSf "https://api.github.com/repos/${{ env.OVERLAYPLUGIN_REPO }}/releases/latest" | jq -r '.tag_name')
+          fi
+          if [ -z "$ref" ] || [ "$ref" = "null" ]; then
+            echo "Failed to resolve latest OverlayPlugin release" >&2
+            exit 1
+          fi
+          echo "Building against OverlayPlugin $ref"
+          echo "OVERLAYPLUGIN_REF=$ref" >> $GITHUB_ENV
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.OVERLAYPLUGIN_REPO }}
+          ref: ${{ env.OVERLAYPLUGIN_REF }}
+          path: OverlayPlugin
+
+      - name: Set artifact name
+        shell: bash
+        run: |
+          sha=$(echo "${{ github.sha }}" | cut -c 1-8)
+          echo "artifact_sha=$sha" >> $GITHUB_ENV
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # DEPS.cache travels with the archives: fetch_deps.ps1 compares it against DEPS.json
+      # and only re-downloads when they disagree. The key is computed off the pristine
+      # DEPS.json, before build.ps1 repins the dead FFXIV_ACT_Plugin SDK entry, which is what
+      # keeps it stable across runs.
+      - name: Check dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ./OverlayPlugin/Thirdparty
+            ./OverlayPlugin/OverlayPlugin.Core/Thirdparty
+            ./OverlayPlugin/DEPS.cache
+          key: ${{ runner.os }}-overlayplugin-${{ env.OVERLAYPLUGIN_REF }}-${{ hashFiles('./OverlayPlugin/tools/fetch_deps.ps1', './OverlayPlugin/DEPS.json', './OverlayPlugin/tools/StripFFXIVClientStructs/StripFFXIVClientStructs/StripFFXIVClientStructs.cs') }}
+          restore-keys: |
+            ${{ runner.os }}-overlayplugin-${{ env.OVERLAYPLUGIN_REF }}-
+            ${{ runner.os }}-overlayplugin-
+
+      - name: Set up msbuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Add Custom Problem Matcher
+        run: |
+          echo "::add-matcher::OverlayPluginAddon/.github/matchers/${{ github.job }}.json"
+
+      # Fetches OverlayPlugin's dependencies, strips FFXIVClientStructs, builds Debug then
+      # Release, and stages out/Release/package-OverlayPluginAddon/OverlayPluginAddon/.
+      - name: Run Build
+        run: .\OverlayPluginAddon\build.bat -ci
+        shell: cmd
+
+      # Both suites reflect over the Release assembly, which targets net48 - Windows PowerShell,
+      # not pwsh. They exit non-zero on a failed check, and one script per step so that the
+      # shell's $LASTEXITCODE check sees it.
+      - name: GCD regression tests
+        run: .\OverlayPluginAddon\tools\Test-Gcd.ps1
+        shell: powershell
+
+      # Reads the weaponskill/spell table out of the parser resource assembly that
+      # fetch_deps.ps1 unpacked into OverlayPlugin/Thirdparty.
+      - name: Action category tests
+        run: .\OverlayPluginAddon\tools\Test-ActionCategories.ps1
+        shell: powershell
+
+      - name: Determine Version
+        shell: pwsh
+        run: |
+          [xml]$propscontents = Get-Content -Path "OverlayPluginAddon\Directory.Build.props";
+          $version = $propscontents.Project.PropertyGroup.AssemblyVersion;
+          $version = ($version | Out-String).Trim()
+          echo "version=$version" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
+      # Expected "OverlayPluginAddon" as top level item of the .zip, which is why the staged
+      # package directory - not its contents - is uploaded.
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OverlayPluginAddon-${{ env.version }}-${{ env.artifact_sha }}
+          path: out/Release/package-OverlayPluginAddon/
+          retention-days: 30
