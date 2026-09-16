@@ -71,16 +71,28 @@ GCD 欄位：
 | `fflogsHealed` / `fflogsOverHeal` / `fflogsHeals` / `fflogsCritheals` | 治療量（含溢出，照 ACT 的算法）、溢出量、次數 |
 | `fflogsMaxheal` / `fflogsMAXHEAL` | 最大單次治療 |
 | `fflogsDeaths` | 死亡次數 |
-| `fflogsDuration` | **傷害**欄位的除數：戰鬥時長減去 downtime |
-| `fflogsHealDuration` | **治療**欄位的除數：整場，不扣 downtime |
+| `fflogsDuration` | **傷害**欄位的除數：戰鬥時長減去 downtime。**帶小數，不是整數秒** |
+| `fflogsHealDuration` | **治療**欄位的除數：整場，不扣 downtime。同樣帶小數 |
 
-整場那一層（`EncounterData.ExportVariables`）：`fflogsDamage`、`fflogsHealed`、`fflogsRdps`、`fflogsDuration`、`fflogsHealDuration`、`fflogsDowntime`、`fflogsApplied`、`fflogsParserVersion`。
+整場那一層（`EncounterData.ExportVariables`）：`fflogsDamage`、`fflogsHealed`、`fflogsRdps`、`fflogsEncdps`、`fflogsEnchps`、`fflogsDuration`、`fflogsHealDuration`、`fflogsDowntime`、`fflogsApplied`、`fflogsParserVersion`。`fflogsEncdps` / `fflogsEnchps` 是懸浮窗標題列印的全隊總計 —— 在這裡除好，用的是每一列用的同兩個時鐘，標題才不會描述一場跟底下表格不同的戰鬥。
 
-**空字串代表 FFLogs 沒有這一列**（NPC，或兩邊名字拼法不同），懸浮窗應該留著 ACT 自己的數字。有這一列的話一定是數字，**包含 0** —— 已經被解析器折進主人的寵物就是 0，不能退回 ACT 的數字，否則主人會被加到兩次。
+**時鐘不要四捨五入到整秒。** rDPS 家族是在這裡除好的，用的是精確秒數；其他每秒欄位是懸浮窗自己除的，用的是這個欄位。把它捨成整數，兩邊就變成一個除 30.4、一個除 30 —— 單人的時候 rDPS 照定義就等於 DPS（沒人給你團輔、你也沒給別人），兩欄卻差了 1～2%。
+
+**空字串代表 FFLogs 沒有這一列**（NPC，或兩邊名字拼法不同）。有這一列的話一定是數字，**包含 0** —— 已經被解析器折進主人的寵物就是 0。
+
+懸浮窗怎麼處理空字串是它自己的事；mopimopi 是原樣顯示（也就是 0），不退回 ACT 的數字 —— 同一列上混兩個來源的數字，等於把同一場戰鬥的兩種量法並排放在相鄰欄位。
 
 除錯用的自訂事件 `onGcdUpdate` 每秒推一次；用 `getGcdData` 也可以主動拉。
 
 同一個 ACT 裡若同時載入舊的 RdpsOverlay，兩邊註冊的是同一組 key，先註冊的那一方負責，後者靜默跳過。
+
+## 一場戰鬥從哪裡到哪裡
+
+ACT 只要脫戰超過閒置時限就會結束一個 encounter 再開一個，而**劇情換場正好就是那樣**：M8S 前半身死亡、一分鐘後第二隻出現，ACT 在那裡切了一刀，FFLogs 卻把整場當一場。
+
+所以這裡的「一場」是**解析器的 fight，不是 ACT 的 encounter**（[PullBoundary.cs](OverlayPluginAddon/Fflogs/PullBoundary.cs)）。GCD 紀錄跟著 fight 走：換場不重置，重新開一場（滅團重來）才重置。照 ACT 的 encounter 重置會把前半場的 GCD 全丟掉，變成同一張表裡傷害欄位講整場、GCD 欄位只講後半場。
+
+只有在解析器沒有 fight 可依據時才回頭聽 ACT：它沒有 handler 的副本，或解析器根本沒起來。換區會把 fight 忘掉，好讓 ACT 在下一個地方重新接手。
 
 ## 兩個時鐘
 
@@ -274,11 +286,13 @@ OverlayPluginAddon/
     FightMatch.cs           fight ↔ ACT encounter 比對，以及兩個時鐘
     MeterSnapshot.cs        折疊比對完的每一列，export formatter 只讀這個
     MeterPipeline.cs        「收集完」到「欄位有數字」之間的全部，Replay-Log 也用同一份
+    PullBoundary.cs         什麼算是新的一場（是 fight，不是 ACT 的 encounter）
   Gcd/
     GcdTracker.cs           xivanalysis 的 GCD 模型，含 downtime 視窗
     StatusTracker.cs        加速狀態與玩家判定
     ActionCategories.cs     從 FFXIV_ACT_Plugin.Resource 讀即時技能分類表
     ActionData.cs           每個技能的 recast / 詠唱時間 / 速度屬性
+  PrivateAssemblies.cs      把自己帶的組件交給 CLR（ACT 用位元組載入，不會去 dll 旁邊找）
   Instrumentation.cs        診斷檔
 data/
   actions.json              recast 資料（tools/Build-ActionData.js 產生）

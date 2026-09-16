@@ -80,8 +80,12 @@ namespace OverlayPluginAddon
         private ActionCategories categories;
         private ActionData actionData;
 
-        /// <summary>The encounter the tracker currently describes. A reference change means "reset".</summary>
+        /// <summary>The ACT encounter the tracker currently describes. Only consulted when the
+        /// parser has no fight of its own to go on - see <see cref="SyncEncounter"/>.</summary>
         private EncounterData currentEncounter;
+
+        /// <summary>What counts as a new pull. See <see cref="PullBoundary"/>.</summary>
+        private readonly PullBoundary pull = new PullBoundary();
 
         private bool hooked;
         private string diagnosticDir;
@@ -170,6 +174,7 @@ namespace OverlayPluginAddon
             }
             pipeline?.Reset();
             pipeline = null;
+            lock (gate) pull.Reset();
 
             base.Stop();
             Log(LogLevel.Info, "AddonEventSource stopped.");
@@ -248,7 +253,9 @@ namespace OverlayPluginAddon
                     break;
 
                 case LineChangeZone:
-                    lock (gate) statuses.Clear();
+                    // No fight survives a zone change, so ACT decides again until the parser opens
+                    // one - which in content it has no handler for is for the rest of the session.
+                    lock (gate) { statuses.Clear(); pull.Reset(); }
                     break;
             }
         }
@@ -392,16 +399,24 @@ namespace OverlayPluginAddon
         }
 
         /// <summary>
-        /// Drops the tracker when ACT moved on to a different encounter. Keyed on the EncounterData
-        /// reference rather than on start time, so Clear / re-parse / a new pull all reset cleanly.
-        /// Caller must hold <see cref="gate"/>.
+        /// Drops the tracker when the pull changed, for the case where the parser cannot say when
+        /// that was: content it has no handler for, or a parser that failed to start. Keyed on the
+        /// EncounterData reference rather than on start time, so Clear / re-parse / a new pull all
+        /// reset cleanly. Caller must hold <see cref="gate"/>.
+        ///
+        /// While the parser is supplying fights it decides instead (see OnSnapshotPublished), and
+        /// ACT ending an encounter at a phase transition changes nothing here.
         /// </summary>
         private void SyncEncounter()
         {
-            var active = ActGlobals.oFormActMain.ActiveZone?.ActiveEncounter;
+            EncounterData active = null;
+            try { active = ActGlobals.oFormActMain.ActiveZone?.ActiveEncounter; }
+            catch (Exception) { /* ACT is between zones */ }
             if (ReferenceEquals(active, currentEncounter)) return;
 
             currentEncounter = active;
+            if (!pull.NoteEncounterChanged()) return;
+
             gcds?.Clear();
             casting.Clear();
             // Statuses deliberately survive: a haste status applied a second before the pull
@@ -413,7 +428,9 @@ namespace OverlayPluginAddon
             lock (gate)
             {
                 currentEncounter = ActGlobals.oFormActMain.ActiveZone?.ActiveEncounter;
-                gcds?.Clear();
+                // Same rule as SyncEncounter: ACT opening an encounter is not by itself a new pull.
+                // In M8S it is the second half of one.
+                if (pull.NoteEncounterChanged()) gcds?.Clear();
             }
         }
 
@@ -497,13 +514,27 @@ namespace OverlayPluginAddon
         }
 
         /// <summary>
-        /// The GCD half measures each player against their own presses, so it does not care which
-        /// encounter ACT thinks is running - but it does need the downtime windows, or M8S'
-        /// minute-long transition reads as a minute of clipping for everyone.
+        /// The GCD half needs two things from each snapshot.
+        ///
+        /// The downtime windows, or M8S' minute-long transition reads as a minute of clipping for
+        /// everyone. And the fight's identity: a new fight is a new pull and the tracker starts
+        /// over, which is the only reset that happens while the parser is supplying fights.
         /// </summary>
         private void OnSnapshotPublished(MeterSnapshot snapshot)
         {
-            lock (gate) gcds?.SetDowntimeWindows(snapshot.Downtime);
+            lock (gate)
+            {
+                gcds?.SetDowntimeWindows(snapshot.Downtime);
+
+                if (!pull.NoteFight(snapshot.FightId)) return;
+
+                gcds?.Clear();
+                casting.Clear();
+                // Whatever ACT calls the encounter right now is this fight's, so SyncEncounter does
+                // not read the change as a second reset.
+                try { currentEncounter = ActGlobals.oFormActMain.ActiveZone?.ActiveEncounter; }
+                catch (Exception) { currentEncounter = null; }
+            }
         }
 
         /// <summary>
@@ -631,15 +662,21 @@ namespace OverlayPluginAddon
             // Two clocks, and they are not the same one. FFLogs divides damage by the fight minus
             // its downtime and healing by the whole fight; an overlay that divides both by one
             // clock disagrees with the report it is mirroring.
-            AddFflogs("fflogsDuration", "Duration (FFLogs)", "Seconds the damage columns are divided by: the fight minus the stretches when nothing could be hit.", _ => Whole(meters.Clocks.Active));
-            AddFflogs("fflogsHealDuration", "Heal duration (FFLogs)", "Seconds the healing columns are divided by: the whole fight, downtime included.", _ => Whole(meters.Clocks.Seconds));
+            AddFflogs("fflogsDuration", "Duration (FFLogs)", "Seconds the damage columns are divided by: the fight minus the stretches when nothing could be hit.", _ => Clock(meters.Clocks.Active));
+            AddFflogs("fflogsHealDuration", "Heal duration (FFLogs)", "Seconds the healing columns are divided by: the whole fight, downtime included.", _ => Clock(meters.Clocks.Seconds));
 
             AddEncounter("fflogsDamage", "Damage (FFLogs)", "The raid's damage as FFLogs' parser books it.", m => Whole(m.EncounterDamage));
             AddEncounter("fflogsHealed", "Healing (FFLogs)", "The raid's healing including overheal.", m => Whole(m.EncounterHealed));
             AddEncounter("fflogsRdps", "rDPS total (FFLogs)", "The raid's rDPS numerator, which every row's rDPS % is a share of.", m => Whole(m.EncounterRdpsAmount));
-            AddEncounter("fflogsDuration", "Duration (FFLogs)", "Seconds the damage columns are divided by.", m => Whole(m.Clocks.Active));
-            AddEncounter("fflogsHealDuration", "Heal duration (FFLogs)", "Seconds the healing columns are divided by.", m => Whole(m.Clocks.Seconds));
-            AddEncounter("fflogsDowntime", "Downtime (FFLogs)", "Seconds of this fight when nothing could be hit.", m => Whole(m.Clocks.Downtime));
+            // The overlay prints these as the header totals. Divided here, against the same clocks
+            // the rows were, so the header cannot describe a different pull from the table under it.
+            AddEncounter("fflogsEncdps", "Raid DPS (FFLogs)", "The raid's damage per second, over the fight minus its downtime.",
+                m => Whole(m.EncounterDamage / (m.Clocks.Active > 0 ? m.Clocks.Active : 1)));
+            AddEncounter("fflogsEnchps", "Raid HPS (FFLogs)", "The raid's healing per second, over the whole fight.",
+                m => Whole(m.EncounterHealed / (m.Clocks.Seconds > 0 ? m.Clocks.Seconds : 1)));
+            AddEncounter("fflogsDuration", "Duration (FFLogs)", "Seconds the damage columns are divided by.", m => Clock(m.Clocks.Active));
+            AddEncounter("fflogsHealDuration", "Heal duration (FFLogs)", "Seconds the healing columns are divided by.", m => Clock(m.Clocks.Seconds));
+            AddEncounter("fflogsDowntime", "Downtime (FFLogs)", "Seconds of this fight when nothing could be hit.", m => Clock(m.Clocks.Downtime));
             // These two are the answer to "why is the table ACT's?", so they report even when
             // nothing was applied - which is exactly when someone wants to read them.
             AddEncounter("fflogsApplied", "FFLogs applied", "1 when the parser's fight is the pull ACT is reporting, 0 when every column is ACT's own.",
@@ -650,6 +687,16 @@ namespace OverlayPluginAddon
 
         private static string Rate(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
         private static string Whole(double v) => Math.Round(v).ToString("0", CultureInfo.InvariantCulture);
+
+        /// <summary>
+        /// A clock, to the millisecond, and not rounded to whole seconds.
+        ///
+        /// The rDPS family is divided here, by the exact figure; every other per-second column is
+        /// divided by the overlay, using this. Rounding it meant the two sides divided the same
+        /// damage by 30 and by 30.4 - so a solo pull, where rDPS is by definition just DPS with
+        /// nobody to give or take buffs, showed the two columns 1-2% apart.
+        /// </summary>
+        private static string Clock(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
         /// <summary>The biggest hit as ACT spells it: the ability's name, a dash, and the number.</summary>
         private static string MaxHitText(PlayerFigures f) =>

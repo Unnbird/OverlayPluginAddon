@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Regression test for ParserOutput and MeterSnapshot: reading FFLogs' parser output and matching
     it to ACT's table.
@@ -15,11 +15,12 @@
         exactly on the parser's total and not twice it
       - a pet the parser already folded in (Carbuncle) reads zero, not ACT's figure and not empty
       - Limit Break is a row like any other: nobody owns it, and it takes and gives no buffs
-      - a row FFLogs never saw reads empty, so ACT's own figure stands
+      - a row FFLogs never saw reads empty, which is not the same as reading zero
       - the two clocks: damage loses the downtime, healing does not
+      - what counts as a new pull, which is the parser's fight and not ACT's encounter
 
-    The same fixture drives the JavaScript this was ported from, in
-    mopimopi/tests/test-fflogs-overlay.js.
+    What the overlay does with an empty column is its own business and is checked on that side, in
+    mopimopi/tests/test-core-person.js.
 
     Requires a Release build.  .\build.ps1 -SkipDeps; .\tools\Test-Fflogs.ps1
 #>
@@ -225,6 +226,43 @@ Check "no healing table"   $emptyFight.HasHealing "False"
 Check "no deaths table"    $emptyFight.HasDeaths "False"
 $emptySnapshot = $snapshotType::Build($emptyFight, $true, "durations match", $noWindows)
 Check "nothing to look up" $(if ($null -eq $emptySnapshot.Lookup("Viper A")) { "null" } else { "found" }) "null"
+
+Section "what counts as a new pull"
+# ACT ends an encounter whenever combat drops for its idle timeout, and a scripted phase transition
+# is exactly that. FFLogs keeps the pull as one fight and every damage column reports it as one, so
+# the GCD record has to follow the fight and not ACT - otherwise half the table describes the whole
+# pull and one column describes the second half of it.
+$pullType = $asm.GetType("OverlayPluginAddon.Fflogs.PullBoundary")
+$pull = [Activator]::CreateInstance($pullType)
+
+Check "nothing seen yet: ACT decides"        $pull.NoteEncounterChanged() "True"
+Check "the parser opens a fight"             $pull.NoteFight(7) "True"
+Check "and now it decides"                   $pull.FollowingParser "True"
+
+# M8S: the first body dies, a minute passes, ACT opens a second encounter. Same fight throughout.
+Check "collects during the pull change nothing" $pull.NoteFight(7) "False"
+Check "ACT splitting the pull is not a new one" $pull.NoteEncounterChanged() "False"
+Check "nor is the collect after it"            $pull.NoteFight(7) "False"
+Check "the fight is still the same one"        $pull.FightId 7
+
+# A collect with no fight in it is the parser between pulls, not the end of one - it keeps reporting
+# the finished fight until the next opens, and dropping the record there loses the end of the pull.
+Check "an empty collect is not a boundary"     $pull.NoteFight(0) "False"
+Check "and the fight is remembered"            $pull.FightId 7
+
+Section "a wipe and a repull"
+Check "the next fight starts the record over"  $pull.NoteFight(8) "True"
+Check "once, not on every collect"             $pull.NoteFight(8) "False"
+
+Section "content the parser has no handler for"
+# A zone change ends any fight, and in a zone the parser does not know it never opens another. ACT
+# has to be able to take over again, or one dungeon boss's GCDs would run into the next.
+$pull.Reset()
+Check "after a zone change ACT decides again"  $pull.NoteEncounterChanged() "True"
+Check "and keeps deciding"                     $pull.NoteEncounterChanged() "True"
+Check "with no fight to follow"                $pull.FollowingParser "False"
+Check "until the parser opens one"             $pull.NoteFight(9) "True"
+Check "and then it stops"                      $pull.NoteEncounterChanged() "False"
 
 $engine.Dispose()
 
