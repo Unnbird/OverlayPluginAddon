@@ -166,6 +166,11 @@ Check "aDPS"                         ([Math]::Round($row.Adps, 2)) ([Math]::Roun
 Check "nDPS"                         ([Math]::Round($row.Ndps, 2)) ([Math]::Round((1500000 - 75000) / $divisor, 2))
 Check "cDPS"                         ([Math]::Round($row.Cdps, 2)) ([Math]::Round((1500000 + 120000) / $divisor, 2))
 Check "rDPS delta is given - taken"  ([Math]::Round($row.RdpsDelta, 2)) ([Math]::Round((120000 - 75000) / $divisor, 2))
+# DPS is divided here for the same reason rDPS is: an overlay dividing for itself gets the clock as
+# a string and the damage as a rounded whole, and a solo pull - where rDPS is DPS by definition -
+# then shows two numbers. Own rather than folded, matching the damage above it; the pet rows below
+# carry the rest and add back to the folded rate.
+Check "DPS is the player's own"      ([Math]::Round($row.Dps, 2)) ([Math]::Round(1000000 / $divisor, 2))
 
 Section "rDPS % is a share of the table"
 $total = 0.0
@@ -184,12 +189,20 @@ Check "overheal on its own"       $me.OverHeal 900000
 Check "heal count"                $me.HealHits.HitCount 500
 Check "biggest heal's ability"    $me.MaxHealAbility "Adloquium"
 Check "deaths"                    $me.Deaths 1
+# The healing clock is the whole fight, downtime included - the other one of FFLogs' two.
+Check "HPS is over the whole fight" ([Math]::Round($me.Hps, 2)) ([Math]::Round((3000000 + 900000) / $clocks.Seconds, 2))
 
 Section "pets get their own share, never ACT's"
 $demi = $snapshot.Lookup("Demi-Bahamut (Summoner S)")
 Check "the pet the parser kept apart"  $demi.Damage 500000
 Check "and its hits"                   $demi.Hits.HitCount 20
 Check "no rDPS of its own"             $demi.Rdps 0
+# It does get a DPS of its own, and that is the point: every row here is divided by the same clock,
+# so an overlay summing pet rows into the owner arrives at the folded rate rather than at the
+# owner's own - which is the rate rDPS is measured on.
+Check "but a DPS of its own"           ([Math]::Round($demi.Dps, 2)) ([Math]::Round(500000 / $divisor, 2))
+Check "owner plus pets is the folded rate" `
+    ([Math]::Round($row.Dps + $demi.Dps, 2)) ([Math]::Round(1500000 / $divisor, 2))
 # Carbuncle mirrors its owner's buffs, so the parser folded it in and there is nothing left to give
 # this row. Zero, not ACT's figure: mopimopi sums pet rows into the owner, and the owner's row
 # already has it.

@@ -26,6 +26,22 @@ namespace OverlayPluginAddon.Fflogs
 
         public int Deaths;
 
+        /// <summary>
+        /// This row's damage and healing per second, divided here rather than by the overlay.
+        ///
+        /// Own, not folded, unlike the rDPS family below: a pet the parser kept apart carries its
+        /// own rate on its own row, so an overlay that sums pet rows into the owner arrives at the
+        /// folded rate rDPS is measured on. Rates add the way the amounts behind them do, because
+        /// every row on this table is divided by the same clock.
+        ///
+        /// Dividing here is what makes a solo pull read the same in both columns. An overlay
+        /// dividing for itself gets the clock as a string and the damage as a rounded whole, and
+        /// neither survives the trip intact - which is the whole difference between rDPS and DPS
+        /// on a pull where, nobody being there to give or take a buff, they are one number.
+        /// </summary>
+        public double Dps;
+        public double Hps;
+
         public double Rdps;
         public double Adps;
         public double Ndps;
@@ -122,6 +138,7 @@ namespace OverlayPluginAddon.Fflogs
             foreach (var row in fight.Healing) snapshot.EncounterHealed += row.Amount + row.Over;
 
             var divisor = snapshot.Clocks.Active > 0 ? snapshot.Clocks.Active : 1;
+            var healDivisor = snapshot.Clocks.Seconds > 0 ? snapshot.Clocks.Seconds : 1;
             var rdpsTotal = snapshot.EncounterRdpsAmount;
 
             foreach (var row in fight.Damage)
@@ -137,6 +154,9 @@ namespace OverlayPluginAddon.Fflogs
                     Hits = row.Own.Hits,
                     MaxHitAbility = row.Own.MaxHitAbility,
                     Deaths = deaths,
+
+                    // Own, matching the damage above it: the pet rows carry the rest.
+                    Dps = row.Own.Amount / divisor,
 
                     // The rDPS family is the folded total - own plus every pet - because it is a
                     // rate on the player, not a quantity to be summed across their lines.
@@ -154,6 +174,7 @@ namespace OverlayPluginAddon.Fflogs
                     figures.OverHeal = healing.Own.Over;
                     figures.HealHits = healing.Own.Hits;
                     figures.MaxHealAbility = healing.Own.MaxHitAbility;
+                    figures.Hps = figures.Healed / healDivisor;
                 }
 
                 snapshot.rows[row.Name] = figures;
@@ -171,6 +192,7 @@ namespace OverlayPluginAddon.Fflogs
                     HealHits = row.Own.Hits,
                     MaxHealAbility = row.Own.MaxHitAbility,
                     Deaths = deaths,
+                    Hps = (row.Own.Amount + row.Own.Over) / healDivisor,
                 };
             }
 
@@ -220,6 +242,11 @@ namespace OverlayPluginAddon.Fflogs
                 figures.HealHits = healingPet.Hits;
                 figures.MaxHealAbility = healingPet.MaxHitAbility;
             }
+
+            // The pet's own share of the rates, against the same two clocks its owner's row used.
+            // Summed back into the owner they come to the folded rate, which is what rDPS is.
+            figures.Dps = figures.Damage / (Clocks.Active > 0 ? Clocks.Active : 1);
+            figures.Hps = figures.Healed / (Clocks.Seconds > 0 ? Clocks.Seconds : 1);
 
             return figures;
         }

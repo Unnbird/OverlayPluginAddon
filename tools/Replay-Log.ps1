@@ -134,16 +134,19 @@ if ($rows.Count -eq 0) {
     Write-Host "No rows. The parser opened no fight in this slice - check the range, or that the log is a network log." -ForegroundColor Yellow
 }
 else {
-    "{0,-24} {1,13} {2,10} {3,10} {4,7} {5,12} {6,7}" -f "name", "damage", "rDPS", "aDPS", "rDPS%", "healed", "deaths"
-    "-" * 92
+    "{0,-24} {1,13} {2,10} {3,10} {4,10} {5,7} {6,12} {7,7}" -f "name", "damage", "DPS", "rDPS", "aDPS", "rDPS%", "healed", "deaths"
+    "-" * 103
     $rows | Sort-Object { - $_.Figures.Rdps } | Select-Object -First $Top | ForEach-Object {
-        "{0,-24} {1,13:N0} {2,10:N1} {3,10:N1} {4,6:N1}% {5,12:N0} {6,7}" -f `
-            $_.Name, $_.Figures.Damage, $_.Figures.Rdps, $_.Figures.Adps,
+        "{0,-24} {1,13:N0} {2,10:N1} {3,10:N1} {4,10:N1} {5,6:N1}% {6,12:N0} {7,7}" -f `
+            $_.Name, $_.Figures.Damage, $_.Figures.Dps, $_.Figures.Rdps, $_.Figures.Adps,
             $_.Figures.RdpsPct, $_.Figures.Healed, $_.Figures.Deaths
     }
     ""
-    "Damage is each player without the pets FFLogs keeps as rows of their own; rDPS is the folded"
-    "total. Compare against the same pull's report on fflogs.com."
+    "Damage and DPS are each player without the pets FFLogs keeps as rows of their own; rDPS is the"
+    "folded total, so on a pull with such a pet the owner's DPS is short by the pet's line and the"
+    "two only meet once the pet is summed back in. Solo and petless, DPS and rDPS are one number -"
+    "if they are not here, they will not be in the overlay either. Compare against the same pull's"
+    "report on fflogs.com."
 }
 
 $parser.Dispose()

@@ -642,6 +642,16 @@ namespace OverlayPluginAddon
             AddFflogs("rdpsDelta", "rDPS delta", "rDPS minus this player's own damage per second: what supporting the raid was worth, less what the raid gave them.", f => Rate(f.RdpsDelta));
             AddFflogs("rdpsPct", "rDPS %", "This player's share of the raid's rDPS, as a percentage.", f => Rate(f.RdpsPct));
 
+            // Damage and healing per second, divided here rather than left for the overlay.
+            //
+            // The rDPS family above was always divided here, and that is the only reason a solo
+            // pull used to disagree with itself: rDPS came off the exact clock while DPS was the
+            // overlay dividing a rounded damage by a clock it had re-read out of a string. Same
+            // shape as fflogsDamage - own, with the kept-apart pets carrying their own share on
+            // their own rows - so an overlay that sums pets into the owner still adds up.
+            AddFflogs("fflogsDps", "DPS (FFLogs)", "Damage per second over the fight minus its downtime. Already divided; show it as it came. Excludes pets FFLogs keeps as rows of their own, which carry theirs.", f => Rate(f.Dps));
+            AddFflogs("fflogsHps", "HPS (FFLogs)", "Healing per second over the whole fight, overheal included the way ACT counts it. Already divided; show it as it came.", f => Rate(f.Hps));
+
             AddFflogs("fflogsDamage", "Damage (FFLogs)", "Damage as FFLogs' parser books it, excluding pets it keeps as rows of their own.", f => Whole(f.Damage));
             AddFflogs("fflogsHits", "Hits (FFLogs)", "Hit count as FFLogs' parser books it.", f => Whole(f.Hits.HitCount));
             AddFflogs("fflogsCrithits", "Crits (FFLogs)", "Critical hit count as FFLogs' parser books it.", f => Whole(f.Hits.CriticalCount));

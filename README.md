@@ -65,6 +65,8 @@ GCD 欄位：
 
 | key | 說明 |
 |---|---|
+| `fflogsDps` | 每秒傷害，**在這裡除好**，除數跟 rDPS 家族是同一個（戰鬥時長 − downtime）。**不含**獨立成列的寵物 —— 那幾列各自帶自己的一份，懸浮窗把寵物併進主人時加起來就是 rDPS 量的那個折疊總量 |
+| `fflogsHps` | 每秒治療，同樣除好，除數是整場 |
 | `fflogsDamage` | FFLogs 記的傷害。**不含**它另外獨立成列的寵物（巴哈姆特等） |
 | `fflogsHits` / `fflogsCrithits` / `fflogsDirectHitCount` / `fflogsCritDirectHitCount` | 命中／暴擊／直擊／暴直次數 |
 | `fflogsMaxhit` / `fflogsMAXHIT` | 最大單次傷害，`技能名-數字` 與純數字兩種寫法（照 ACT 的格式） |
@@ -76,7 +78,9 @@ GCD 欄位：
 
 整場那一層（`EncounterData.ExportVariables`）：`fflogsDamage`、`fflogsHealed`、`fflogsRdps`、`fflogsEncdps`、`fflogsEnchps`、`fflogsDuration`、`fflogsHealDuration`、`fflogsDowntime`、`fflogsApplied`、`fflogsParserVersion`。`fflogsEncdps` / `fflogsEnchps` 是懸浮窗標題列印的全隊總計 —— 在這裡除好，用的是每一列用的同兩個時鐘，標題才不會描述一場跟底下表格不同的戰鬥。
 
-**時鐘不要四捨五入到整秒。** rDPS 家族是在這裡除好的，用的是精確秒數；其他每秒欄位是懸浮窗自己除的，用的是這個欄位。把它捨成整數，兩邊就變成一個除 30.4、一個除 30 —— 單人的時候 rDPS 照定義就等於 DPS（沒人給你團輔、你也沒給別人），兩欄卻差了 1～2%。
+**每秒的欄位一律在這裡除。** 單人的時候 rDPS 照定義就等於 DPS（沒人給你團輔、你也沒給別人），所以只要這兩欄不是同一個地方除出來的，它們就會對不上：先是懸浮窗把時鐘捨成整數，一個除 30.4、一個除 30，差 1～2%；把時鐘改成帶小數送過去之後，換成懸浮窗把 30.456 讀成 30.45。所以 `fflogsDps` / `fflogsHps` 跟 rDPS 家族一樣除好再送，懸浮窗原樣顯示。
+
+時鐘還是照送，而且**不要四捨五入到整秒**：舊版懸浮窗仍然自己除，`fflogsDuration` 帶小數才不會又差一次。
 
 **空字串代表 FFLogs 沒有這一列**（NPC，或兩邊名字拼法不同）。有這一列的話一定是數字，**包含 0** —— 已經被解析器折進主人的寵物就是 0。
 
