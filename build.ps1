@@ -152,7 +152,41 @@ try {
         if (Test-Path $pdb) { Copy-Item $pdb $pkg }
     }
 
-    # GcdEventSource looks for data/actions.json beside the dll first, so it has to ship.
+    # ClearScript is the exception to the line above: OverlayPlugin has no JavaScript engine of its
+    # own, so V8 and everything it needs has to ship with us.
+    #
+    # ACT loads a plugin from bytes it read itself, so the runtime never learns which folder the dll
+    # came from and will not probe it - PrivateAssemblies.cs hands these over by name at resolve
+    # time. Which means a file missing from this list does not degrade, it throws on the parser's
+    # own thread, and that used to take the whole of ACT down. The set below was verified by loading
+    # the dll from bytes with nothing else on the probing path (see the README's build section);
+    # the last four are transitive and were not obvious.
+    #
+    # Keep the layout flat: ClearScript finds ClearScriptV8.win-x64.dll beside its own assembly.
+    $private = @(
+        "ClearScript.Core.dll",
+        "ClearScript.V8.dll",
+        "ClearScriptV8.win-x64.dll",
+        "ClearScript.V8.ICUData.dll",
+        "Microsoft.Bcl.AsyncInterfaces.dll",
+        "System.Threading.Tasks.Extensions.dll",
+        "System.Runtime.CompilerServices.Unsafe.dll",
+        "System.Memory.dll",
+        "System.Buffers.dll",
+        "System.Numerics.Vectors.dll",
+        "System.ValueTuple.dll",
+        # OverlayPlugin has this loaded already, but only because it happens to; ClearScript needs
+        # it and nothing guarantees the order.
+        "Newtonsoft.Json.dll"
+    )
+    foreach ($file in $private) {
+        $path = Join-Path $outDir $file
+        if (-not (Test-Path $path)) { throw "Dependency missing from the build output: $path" }
+        Copy-Item $path $pkg
+    }
+
+    # EventSource looks for data/actions.json and data/parser-ff.js beside the dll first, so the
+    # whole data directory has to ship - FFLogs' parser included.
     $data = Join-Path $repo "data"
     if (-not (Test-Path $data)) { throw "data/ directory not found: $data" }
     Copy-Item -Recurse $data (Join-Path $pkg "data")

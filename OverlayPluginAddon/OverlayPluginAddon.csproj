@@ -29,6 +29,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
+    <!-- 13.0.3 rather than OverlayPlugin's 13.0.1 because ClearScript needs at least that. Every
+         13.x carries assembly version 13.0.0.0, so the two load as one assembly either way. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- FFLogs' log parser is JavaScript and stays JavaScript: it is proprietary, obfuscated and
+         reissued on their schedule, so it is hosted rather than ported. V8 rather than a managed
+         engine because this runs on ACT's log thread - measured on this parser, V8 takes 68,000
+         lines/s where Jint takes 1,600, and a raid pull is a few hundred lines a second with
+         bursts. The cost is ~39 MB of native DLLs in the release zip. -->
+    <PackageReference Include="Microsoft.ClearScript.V8" Version="7.5.1.1" />
+    <PackageReference Include="Microsoft.ClearScript.V8.Native.win-x64" Version="7.5.1.1" />
   </ItemGroup>
 </Project>

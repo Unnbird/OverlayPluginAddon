@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -7,19 +7,21 @@ using System.Windows.Forms;
 using Advanced_Combat_Tracker;
 using Newtonsoft.Json.Linq;
 using RainbowMage.OverlayPlugin;
+using OverlayPluginAddon.Fflogs;
 
 namespace OverlayPluginAddon
 {
     /// <summary>
-    /// Measures every player's GCD uptime off ACT's log-reading loop and publishes it as ACT
-    /// export variables, so any overlay that reads CombatData (mopimopi included) gets the
-    /// columns without further plumbing.
+    /// The one place every number is worked out.
     ///
-    /// The model is xivanalysis' - see <see cref="GcdTracker"/>. This class only feeds it: which
-    /// lines are GCDs, when the button actually went down, whether the cast bar ran, and what
-    /// haste was on the player at that moment.
+    /// Two measurements run off the same log lines. GCD uptime is measured here, on ACT's
+    /// log-reading loop, to xivanalysis' model (see <see cref="GcdTracker"/>). The rDPS family
+    /// comes from FFLogs' own parser, hosted in <see cref="ParserHost"/> and read back through
+    /// <see cref="MeterSnapshot"/>. Both are published as ACT export variables, so any overlay that
+    /// reads CombatData - mopimopi included - gets the columns with no further plumbing and no
+    /// second copy of the arithmetic.
     /// </summary>
-    public class GcdEventSource : EventSourceBase
+    public class AddonEventSource : EventSourceBase
     {
         private const string GcdUpdateEvent = "onGcdUpdate";
 
@@ -84,7 +86,19 @@ namespace OverlayPluginAddon
         private bool hooked;
         private string diagnosticDir;
 
-        public GcdEventSource(TinyIoCContainer container) : base(container)
+        /// <summary>FFLogs' parser, on a thread of its own. Null when it failed to start.</summary>
+        private ParserHost parser;
+
+        /// <summary>
+        /// Turns each collect into the table the export formatters read. Lives outside this class
+        /// so a replay of a saved log can drive the same chain without ACT.
+        /// </summary>
+        private volatile MeterPipeline pipeline;
+
+        /// <summary>What the export formatters read. Empty until the parser has said something.</summary>
+        private MeterSnapshot meters => pipeline?.Current ?? MeterSnapshot.Empty;
+
+        public AddonEventSource(TinyIoCContainer container) : base(container)
         {
             Name = "GcdOverlayES";
 
@@ -129,10 +143,12 @@ namespace OverlayPluginAddon
                 hooked = true;
             }
 
+            StartParser();
+
             diag.EventSourceStarted = true;
 
             base.Start();
-            Log(LogLevel.Info, "GcdEventSource started. Diagnostics are written to {0} after every encounter.",
+            Log(LogLevel.Info, "AddonEventSource started. Diagnostics are written to {0} after every encounter.",
                 DiagnosticPath("OverlayPluginAddon.diagnostics.txt") ?? "(path unavailable)");
         }
 
@@ -146,8 +162,17 @@ namespace OverlayPluginAddon
                 hooked = false;
             }
 
+            if (parser != null)
+            {
+                if (pipeline != null) parser.Collected -= pipeline.Accept;
+                parser.Dispose();
+                parser = null;
+            }
+            pipeline?.Reset();
+            pipeline = null;
+
             base.Stop();
-            Log(LogLevel.Info, "GcdEventSource stopped.");
+            Log(LogLevel.Info, "AddonEventSource stopped.");
         }
 
         // ------------------------------------------------------------------ log line intake
@@ -163,6 +188,11 @@ namespace OverlayPluginAddon
                 line = args.logLine;
             }
             if (string.IsNullOrEmpty(line)) return;
+
+            // The parser wants the whole log, not the handful of line types the GCD half reads, and
+            // it wants them in order. Feed() only appends to a list; all the work happens on the
+            // parser's own thread, so ACT's log loop is never held up by it.
+            parser?.Feed(line);
 
             // Cheap prefix check before paying for a Split on every single log line.
             var bar = line.IndexOf('|');
@@ -397,6 +427,132 @@ namespace OverlayPluginAddon
             WriteDiagnosticsDump();
         }
 
+        // ------------------------------------------------------------------ FFLogs parser
+
+        /// <summary>
+        /// Brings FFLogs' parser up. A failure here is not fatal: the GCD columns keep working and
+        /// the rDPS ones stay empty, which is what an overlay sees when the addon is not installed
+        /// at all.
+        /// </summary>
+        private void StartParser()
+        {
+            pipeline = new MeterPipeline(MatchesEncounter, message => Log(LogLevel.Debug, "{0}", message));
+            pipeline.Published += OnSnapshotPublished;
+
+            var path = ResolveDataPath("parser-ff.js");
+            parser = new ParserHost(path, OnParserLog, OverlayAddon.PluginDirectory());
+            parser.Collected += pipeline.Accept;
+
+            // The parser ignores lines older than this. Live, that is now: ACT replays the tail of
+            // the current log file on startup and those lines belong to a pull that is already over.
+            if (parser.Start(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), DetectRegion())) return;
+
+            Log(LogLevel.Warning, "FFLogs parser did not start ({0}). rDPS columns will stay empty; the GCD columns are unaffected.", parser.LastError);
+            if (parser.LastError.IndexOf("ClearScript", StringComparison.OrdinalIgnoreCase) >= 0)
+                Log(LogLevel.Error, "ClearScript could not be loaded. ClearScript.Core.dll, ClearScript.V8.dll, ClearScriptV8.win-x64.dll and ClearScript.V8.ICUData.dll all have to sit in the same folder as OverlayPluginAddon.dll - extract the whole release archive rather than just the dll.");
+            parser.Collected -= pipeline.Accept;
+            parser.Dispose();
+            parser = null;
+        }
+
+        /// <summary>
+        /// Which FFLogs region the parser should read lines as. Detected rather than configured:
+        /// ACT already knows which client it is watching, and asking the user to pick again is one
+        /// more thing to get wrong.
+        ///
+        /// The numbers are FFLogs' own region ids, which are not Machina's - hence the mapping.
+        /// Anything unrecognised reads as Global, which is what a misconfigured overlay defaulted
+        /// to before.
+        /// </summary>
+        private int DetectRegion()
+        {
+            try
+            {
+                var region = container.Resolve<FFXIVRepository>().GetMachinaRegion();
+                switch (region)
+                {
+                    case GameRegion.Chinese: return 5;
+                    case GameRegion.Korean: return 4;
+                    default:
+                        if (region != GameRegion.Global)
+                            Log(LogLevel.Info, "Game region {0} has no FFLogs region of its own; reading logs as Global.", region);
+                        return 1;
+                }
+            }
+            catch (Exception e)
+            {
+                Log(LogLevel.Warning, "Could not detect the game region ({0}); reading logs as Global.", e.Message);
+                return 1;
+            }
+        }
+
+        private void OnParserLog(string level, string message)
+        {
+            switch (level)
+            {
+                case "error": Log(LogLevel.Error, "{0}", message); break;
+                case "warn": Log(LogLevel.Warning, "{0}", message); break;
+                default: Log(LogLevel.Debug, "{0}", message); break;
+            }
+        }
+
+        /// <summary>
+        /// The GCD half measures each player against their own presses, so it does not care which
+        /// encounter ACT thinks is running - but it does need the downtime windows, or M8S'
+        /// minute-long transition reads as a minute of clipping for everyone.
+        /// </summary>
+        private void OnSnapshotPublished(MeterSnapshot snapshot)
+        {
+            lock (gate) gcds?.SetDowntimeWindows(snapshot.Downtime);
+        }
+
+        /// <summary>
+        /// Whether the parser's fight and ACT's encounter are the same pull.
+        ///
+        /// Either rule is enough. The durations agree on an ordinary pull, and that test needs no
+        /// clock alignment at all. The start-time test covers what the duration test cannot see:
+        /// ACT ends an encounter whenever combat drops for its idle timeout, and a scripted phase
+        /// transition is exactly that, so in M8S ACT opens a second encounter at the transition
+        /// while FFLogs keeps the pull as one fight and the two durations never agree again.
+        /// </summary>
+        private bool MatchesEncounter(FightFigures fight, out string reason)
+        {
+            if (fight == null || fight.Damage.Count == 0)
+            {
+                reason = "no fight yet";
+                return false;
+            }
+
+            EncounterData encounter = null;
+            try { encounter = ActGlobals.oFormActMain.ActiveZone?.ActiveEncounter; }
+            catch (Exception) { /* ACT is between zones */ }
+
+            if (encounter == null)
+            {
+                reason = "no encounter";
+                return false;
+            }
+
+            if (FightMatch.DurationsMatch(encounter.Duration.TotalSeconds, fight.DurationSeconds))
+            {
+                reason = "durations match";
+                return true;
+            }
+
+            var startMs = double.NaN;
+            try { startMs = new DateTimeOffset(encounter.StartTime).ToUnixTimeMilliseconds(); }
+            catch (Exception) { /* an encounter with no usable start time */ }
+
+            if (FightMatch.EncounterWithinFight(startMs, fight.StartTimeMs, fight.EndTimeMs, fight.InProgress))
+            {
+                reason = "encounter began inside the fight";
+                return true;
+            }
+
+            reason = "fight does not match the encounter";
+            return false;
+        }
+
         // ------------------------------------------------------------------ ACT export columns
 
         /// <summary>
@@ -426,6 +582,135 @@ namespace OverlayPluginAddon
 
             AddGcd("gcdRecast", "GCD", "This player's plain 2.5s-base recast, from the speed stat inferred for them.",
                 (g) => g.Recast);
+
+            RegisterFflogsColumns();
+        }
+
+        /// <summary>
+        /// The FFLogs columns, in two groups.
+        ///
+        /// The first keeps the names the overlays already know - rdps, adps and the rest - because
+        /// ACT has no column of its own by those names, so an overlay that used to get them from
+        /// the retired RdpsOverlay keeps working unchanged.
+        ///
+        /// The second is prefixed, because ACT owns damage, healed, maxhit and the rest, and
+        /// ExportVariables can only add keys, never replace them. An overlay that wants FFLogs'
+        /// table rather than ACT's reads the prefixed column and falls back to ACT's when it is
+        /// empty - which is exactly what empty means here: FFLogs has nothing for this row.
+        ///
+        /// Every row FFLogs does know reads as a figure, including zero. The distinction matters
+        /// for pets: one the parser folded into its owner reads zero, not empty, so an overlay that
+        /// sums pet rows into the owner cannot count it twice.
+        /// </summary>
+        private void RegisterFflogsColumns()
+        {
+            AddFflogs("rdps", "rDPS", "Damage per second with raid buffs handed back to whoever cast them. Divided by the fight minus its downtime.", f => Rate(f.Rdps));
+            AddFflogs("adps", "aDPS", "Damage per second with single-target buffs taken off the receiver but left with the giver.", f => Rate(f.Adps));
+            AddFflogs("ndps", "nDPS", "Damage per second with every buff received taken off and nothing credited back.", f => Rate(f.Ndps));
+            AddFflogs("cdps", "cDPS", "Damage per second keeping raid buffs received and crediting buffs given.", f => Rate(f.Cdps));
+            AddFflogs("rdpsDelta", "rDPS delta", "rDPS minus this player's own damage per second: what supporting the raid was worth, less what the raid gave them.", f => Rate(f.RdpsDelta));
+            AddFflogs("rdpsPct", "rDPS %", "This player's share of the raid's rDPS, as a percentage.", f => Rate(f.RdpsPct));
+
+            AddFflogs("fflogsDamage", "Damage (FFLogs)", "Damage as FFLogs' parser books it, excluding pets it keeps as rows of their own.", f => Whole(f.Damage));
+            AddFflogs("fflogsHits", "Hits (FFLogs)", "Hit count as FFLogs' parser books it.", f => Whole(f.Hits.HitCount));
+            AddFflogs("fflogsCrithits", "Crits (FFLogs)", "Critical hit count as FFLogs' parser books it.", f => Whole(f.Hits.CriticalCount));
+            AddFflogs("fflogsDirectHitCount", "Direct hits (FFLogs)", "Direct hit count as FFLogs' parser books it.", f => Whole(f.Hits.DirectHitCount));
+            AddFflogs("fflogsCritDirectHitCount", "Critical direct hits (FFLogs)", "Critical direct hit count as FFLogs' parser books it.", f => Whole(f.Hits.CriticalDirectHitCount));
+            AddFflogs("fflogsMaxhit", "Biggest hit (FFLogs)", "Biggest single hit and the ability that dealt it, as ACT spells it: Ability-12345.", MaxHitText);
+            AddFflogs("fflogsMAXHIT", "Biggest hit value (FFLogs)", "Biggest single hit, the bare number.", f => Whole(f.Hits.MaxHit));
+
+            AddFflogs("fflogsHealed", "Healing (FFLogs)", "Healing including overheal, the way ACT counts it. FFLogs keeps the two apart; this adds them back.", f => Whole(f.Healed));
+            AddFflogs("fflogsOverHeal", "Overheal (FFLogs)", "Healing that landed on full health.", f => Whole(f.OverHeal));
+            AddFflogs("fflogsHeals", "Heal count (FFLogs)", "Number of healing hits.", f => Whole(f.HealHits.HitCount));
+            AddFflogs("fflogsCritheals", "Crit heals (FFLogs)", "Number of critical healing hits.", f => Whole(f.HealHits.CriticalCount));
+            AddFflogs("fflogsMaxheal", "Biggest heal (FFLogs)", "Biggest single heal and the ability that cast it.", MaxHealText);
+            AddFflogs("fflogsMAXHEAL", "Biggest heal value (FFLogs)", "Biggest single heal, the bare number.", f => Whole(f.HealHits.MaxHit));
+
+            AddFflogs("fflogsDeaths", "Deaths (FFLogs)", "Deaths as FFLogs' parser counts them.", f => Whole(f.Deaths));
+
+            // Two clocks, and they are not the same one. FFLogs divides damage by the fight minus
+            // its downtime and healing by the whole fight; an overlay that divides both by one
+            // clock disagrees with the report it is mirroring.
+            AddFflogs("fflogsDuration", "Duration (FFLogs)", "Seconds the damage columns are divided by: the fight minus the stretches when nothing could be hit.", _ => Whole(meters.Clocks.Active));
+            AddFflogs("fflogsHealDuration", "Heal duration (FFLogs)", "Seconds the healing columns are divided by: the whole fight, downtime included.", _ => Whole(meters.Clocks.Seconds));
+
+            AddEncounter("fflogsDamage", "Damage (FFLogs)", "The raid's damage as FFLogs' parser books it.", m => Whole(m.EncounterDamage));
+            AddEncounter("fflogsHealed", "Healing (FFLogs)", "The raid's healing including overheal.", m => Whole(m.EncounterHealed));
+            AddEncounter("fflogsRdps", "rDPS total (FFLogs)", "The raid's rDPS numerator, which every row's rDPS % is a share of.", m => Whole(m.EncounterRdpsAmount));
+            AddEncounter("fflogsDuration", "Duration (FFLogs)", "Seconds the damage columns are divided by.", m => Whole(m.Clocks.Active));
+            AddEncounter("fflogsHealDuration", "Heal duration (FFLogs)", "Seconds the healing columns are divided by.", m => Whole(m.Clocks.Seconds));
+            AddEncounter("fflogsDowntime", "Downtime (FFLogs)", "Seconds of this fight when nothing could be hit.", m => Whole(m.Clocks.Downtime));
+            // These two are the answer to "why is the table ACT's?", so they report even when
+            // nothing was applied - which is exactly when someone wants to read them.
+            AddEncounter("fflogsApplied", "FFLogs applied", "1 when the parser's fight is the pull ACT is reporting, 0 when every column is ACT's own.",
+                m => m.Applied ? "1" : "0", always: true);
+            AddEncounter("fflogsParserVersion", "FFLogs parser", "Which build of FFLogs' parser produced these figures.",
+                _ => ParserHost.ParserVersion, always: true);
+        }
+
+        private static string Rate(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
+        private static string Whole(double v) => Math.Round(v).ToString("0", CultureInfo.InvariantCulture);
+
+        /// <summary>The biggest hit as ACT spells it: the ability's name, a dash, and the number.</summary>
+        private static string MaxHitText(PlayerFigures f) =>
+            f.Hits.MaxHit <= 0 ? "" : (f.MaxHitAbility.Length > 0 ? f.MaxHitAbility : "?") + "-" + Whole(f.Hits.MaxHit);
+
+        private static string MaxHealText(PlayerFigures f) =>
+            f.HealHits.MaxHit <= 0 ? "" : (f.MaxHealAbility.Length > 0 ? f.MaxHealAbility : "?") + "-" + Whole(f.HealHits.MaxHit);
+
+        /// <summary>
+        /// One FFLogs column. Empty string when the parser has nothing for this row, so the overlay
+        /// keeps whatever ACT put there.
+        /// </summary>
+        private void AddFflogs(string key, string label, string description, Func<PlayerFigures, string> compute)
+        {
+            if (CombatantData.ExportVariables.ContainsKey(key)) return;
+
+            CombatantData.ExportVariables.Add(key, new CombatantData.TextExportFormatter(
+                key, label, description,
+                (data, extraFormat) =>
+                {
+                    try
+                    {
+                        var name = data?.Name;
+                        if (string.IsNullOrEmpty(name)) return "";
+
+                        // ACT calls the logging player "YOU"; the parser knows their real name.
+                        string resolved;
+                        lock (gate) resolved = statuses.Resolve(name);
+
+                        // meters is volatile and never changed after publication, so this runs
+                        // lock-free inside OverlayPlugin's Parallel.ForEach over allies.
+                        var figures = meters.Lookup(resolved);
+                        return figures == null ? "" : compute(figures);
+                    }
+                    catch (Exception)
+                    {
+                        // Never let a bad column take the whole CombatData payload down with it.
+                        return "";
+                    }
+                }));
+        }
+
+        private void AddEncounter(string key, string label, string description, Func<MeterSnapshot, string> compute,
+            bool always = false)
+        {
+            if (EncounterData.ExportVariables.ContainsKey(key)) return;
+
+            EncounterData.ExportVariables.Add(key, new EncounterData.TextExportFormatter(
+                key, label, description,
+                (data, allies, extraFormat) =>
+                {
+                    try
+                    {
+                        var snapshot = meters;
+                        return always || snapshot.Applied ? compute(snapshot) : "";
+                    }
+                    catch (Exception)
+                    {
+                        return "";
+                    }
+                }));
         }
 
         /// <summary>
@@ -612,7 +897,7 @@ namespace OverlayPluginAddon
                 if (path == null) return null;
 
                 var sb = new StringBuilder();
-                lock (gate) diag.Describe(sb, statuses, categories, actionData, gcds);
+                lock (gate) diag.Describe(sb, statuses, categories, actionData, gcds, parser, meters);
 
                 File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
                 Log(LogLevel.Info, "Diagnostics written to {0}", path);
@@ -625,13 +910,13 @@ namespace OverlayPluginAddon
             }
         }
 
-        private static string ResolveDataPath(string fileName) => GcdOverlayAddon.ResolveDataPath(fileName);
+        private static string ResolveDataPath(string fileName) => OverlayAddon.ResolveDataPath(fileName);
 
         private string DiagnosticPath(string fileName)
         {
             if (diagnosticDir == null)
             {
-                diagnosticDir = GcdOverlayAddon.PluginDirectory() ?? Path.Combine(
+                diagnosticDir = OverlayAddon.PluginDirectory() ?? Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                     "Advanced Combat Tracker", "Config");
             }

@@ -1,12 +1,14 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using OverlayPluginAddon.Fflogs;
 
 namespace OverlayPluginAddon
 {
     /// <summary>
     /// Counters and raw-line samples covering every stage between "ACT read a log line" and "a
-    /// GCD number reached the overlay".
+    /// number reached the overlay", for both halves - the GCD model measured here and the rDPS
+    /// family measured by FFLogs' parser.
     ///
     /// Every field offset this addon uses was written from the documented shape of the FFXIV log
     /// lines. When the output is wrong the failure is silent - a mis-indexed name simply matches
@@ -45,7 +47,7 @@ namespace OverlayPluginAddon
             LinesByType[type] = count + 1;
 
             // A handful of each interesting type, kept verbatim. Comparing these against the field
-            // offsets in StatusTracker / GcdEventSource settles in seconds what no amount of
+            // offsets in StatusTracker / EventSource settles in seconds what no amount of
             // reasoning about the format will.
             if (type != 20 && type != 21 && type != 22 && type != 23 && type != 26 && type != 30 && type != 3 && type != 2) return;
 
@@ -66,9 +68,9 @@ namespace OverlayPluginAddon
         }
 
         public void Describe(StringBuilder sb, StatusTracker statuses, ActionCategories categories,
-                             ActionData actionData, GcdTracker gcds)
+                             ActionData actionData, GcdTracker gcds, ParserHost parser, MeterSnapshot meters)
         {
-            sb.AppendLine("=== OverlayPluginAddon (GCD uptime) diagnostics ===");
+            sb.AppendLine("=== OverlayPluginAddon diagnostics ===");
             sb.AppendFormat("{0:yyyy-MM-dd HH:mm:ss}{1}", DateTime.Now, Environment.NewLine);
             sb.AppendLine();
 
@@ -83,6 +85,38 @@ namespace OverlayPluginAddon
                 categories == null ? "not loaded"
                     : categories.LoadError ?? string.Format("{0} GCD actions", categories.Count),
                 Environment.NewLine);
+            sb.AppendLine();
+
+            // The rDPS half. "applied = False" with a fight present is the usual answer to "the
+            // rDPS columns are empty": the parser has a fight, it is just not the pull ACT is
+            // reporting, and Reason says which rule refused it.
+            sb.AppendLine("-- FFLogs parser --");
+            if (parser == null)
+            {
+                sb.AppendFormat("  running                   : no (parser-ff.js failed to load){0}", Environment.NewLine);
+            }
+            else
+            {
+                sb.AppendFormat("  running                   : {0} (build {1}){2}", parser.Available, ParserHost.ParserVersion, Environment.NewLine);
+                sb.AppendFormat("  lines parsed / errors     : {0} / {1}{2}", parser.LinesParsed, parser.LineErrors, Environment.NewLine);
+                sb.AppendFormat("  collects                  : {0}{1}", parser.Collections, Environment.NewLine);
+                sb.AppendFormat("  queued                    : {0}{1}", parser.QueueLength, Environment.NewLine);
+                if (!string.IsNullOrEmpty(parser.ParserWarning))
+                    sb.AppendFormat("  warning                   : {0}{1}", parser.ParserWarning, Environment.NewLine);
+                if (!string.IsNullOrEmpty(parser.LastError))
+                    sb.AppendFormat("  last error                : {0}{1}", parser.LastError, Environment.NewLine);
+            }
+            if (meters != null)
+            {
+                sb.AppendFormat("  fight                     : {0} ({1}){2}", meters.FightId, meters.FightState, Environment.NewLine);
+                sb.AppendFormat("  applied                   : {0} ({1}){2}", meters.Applied, meters.Reason, Environment.NewLine);
+                sb.AppendFormat("  clocks                    : {0:N1}s total, {1:N1}s downtime, {2:N1}s for damage{3}",
+                    meters.Clocks.Seconds, meters.Clocks.Downtime, meters.Clocks.Active, Environment.NewLine);
+                sb.AppendFormat("  downtime windows          : {0}{1}", meters.Downtime.Count, Environment.NewLine);
+                foreach (var window in meters.Downtime)
+                    sb.AppendFormat("      {0:N1}s long{1}", window.Seconds, Environment.NewLine);
+                sb.AppendFormat("  rows                      : {0}{1}", string.Join(", ", meters.Names), Environment.NewLine);
+            }
             sb.AppendLine();
 
             sb.AppendLine("-- log lines --");
@@ -141,7 +175,7 @@ namespace OverlayPluginAddon
 
             sb.AppendLine("-- raw log line samples --");
             sb.AppendLine("   Compare these against the field offsets in StatusTracker.cs and");
-            sb.AppendLine("   GcdEventSource.cs. Field 0 is the line type.");
+            sb.AppendLine("   EventSource.cs. Field 0 is the line type.");
             foreach (var kv in samples)
             {
                 sb.AppendFormat("  type {0}:{1}", kv.Key, Environment.NewLine);

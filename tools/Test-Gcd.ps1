@@ -419,6 +419,71 @@ Check "recast defaults"    $st.Recast 2.50 0.01
 Check "flagged as default" $(if ($st.RecastEstimated) { 1 } else { 0 }) 0 0
 
 ""
+"=============== 18. downtime: a boss nobody can hit is not clipping ==============="
+# The windows come from the FFLogs parser's zone handler; the tracker only needs the intervals.
+# Time inside one is taken out of both halves - it is not lost GCD time, and it is not in the span
+# the lost time is measured against. This is the difference between M8S' minute-long transition
+# reading as a minute of clipping and reading as nothing at all.
+$windowType = $asm.GetType("OverlayPluginAddon.Fflogs.DowntimeWindow")
+function Windows { param([double[][]] $pairs)
+  $arr = [Array]::CreateInstance($windowType, $pairs.Count)
+  for ($i = 0; $i -lt $pairs.Count; $i++) {
+    $arr[$i] = [Activator]::CreateInstance($windowType, @([double]$pairs[$i][0], [double]$pairs[$i][1]))
+  }
+  return ,$arr
+}
+# Log time is the tracker's own clock: ticks/ms of the DateTime it was handed.
+function At { param([double] $seconds) return $t0.AddSeconds($seconds).Ticks / [double][TimeSpan]::TicksPerMillisecond }
+
+# A clean 2.5s rotation, except that nothing was hittable from 60s to 107s and nobody pressed
+# anything in that window.
+$g = [Activator]::CreateInstance($gcdType, @($actionTable))
+for ($s = 0.0; $s -lt 200; $s += 2.5) {
+  if ($s -ge 60 -and $s -lt 107) { continue }
+  $g.Record("Wolf", $PLAIN, $t0.AddSeconds($s), 1.0, $false, $false)
+}
+$st = $g.StatsFor("Wolf")
+# The gap is 50s and the cast that opened it was charged its 2.5s recast, so 47.5s is lost.
+Check "without windows the gap is all clip" $st.Clip 47.5 0.1
+Check "and uptime suffers"                  ($st.Uptime * 100) 75.95 0.2
+
+$changed = $g.SetDowntimeWindows((Windows @(,@((At 58), (At 107)))))
+Check "windows changed"                     $(if ($changed) { 1 } else { 0 }) 1 0
+$st = $g.StatsFor("Wolf")
+Check "inside a window nothing is lost"     $st.Clip 0 0.01
+Check "uptime back to 100%"                 ($st.Uptime * 100) 100 0.01
+Check "span has the window taken out"       $st.ActiveSeconds (197.5 - 49) 0.01
+
+Check "setting the same windows again changes nothing" `
+  $(if ($g.SetDowntimeWindows((Windows @(,@((At 58), (At 107)))))) { 1 } else { 0 }) 0 0
+
+""
+"=============== 18a. a real clip outside the window still counts ==============="
+$g = [Activator]::CreateInstance($gcdType, @($actionTable))
+for ($s = 0.0; $s -lt 200; $s += 2.5) {
+  if ($s -ge 60 -and $s -lt 107) { continue }   # the untargetable stretch
+  if ($s -ge 150 -and $s -lt 160) { continue }  # ten seconds of standing still
+  $g.Record("Wolf", $PLAIN, $t0.AddSeconds($s), 1.0, $false, $false)
+}
+$g.SetDowntimeWindows((Windows @(,@((At 58), (At 107))))) | Out-Null
+$st = $g.StatsFor("Wolf")
+Check "only the real pause is charged" $st.Clip 10 0.01
+Check "uptime reflects it"             ($st.Uptime * 100) 93.27 0.2
+
+""
+"=============== 18b. overlapping windows are counted once ==============="
+$g = [Activator]::CreateInstance($gcdType, @($actionTable))
+for ($s = 0.0; $s -lt 100; $s += 2.5) { $g.Record("Dup", $PLAIN, $t0.AddSeconds($s), 1.0, $false, $false) }
+$g.SetDowntimeWindows((Windows @(@((At 10), (At 20)), @((At 15), (At 25)), @((At 30), (At 35))))) | Out-Null
+Check "merged, not summed"   ($g.DowntimeBetween((At 0), (At 100)) / 1000) 20 0.001
+Check "partial overlap"      ($g.DowntimeBetween((At 12), (At 18)) / 1000) 6 0.001
+Check "window outside range" ($g.DowntimeBetween((At 0), (At 5)) / 1000) 0 0.001
+Check "empty range"          ($g.DowntimeBetween((At 50), (At 10)) / 1000) 0 0.001
+
+$emptyWindows = [Array]::CreateInstance($windowType, 0)
+Check "cleared" $(if ($g.SetDowntimeWindows($emptyWindows)) { $g.DowntimeBetween((At 0), (At 100)) } else { -1 }) 0 0.001
+
+""
 ""
 if ($global:RdpsTestFailures -gt 0) {
     Write-Host "==> $($global:RdpsTestFailures) check(s) FAILED" -ForegroundColor Red

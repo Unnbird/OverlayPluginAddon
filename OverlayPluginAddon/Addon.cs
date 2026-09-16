@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -12,7 +12,7 @@ using RainbowMage.OverlayPlugin.Updater;
 
 namespace OverlayPluginAddon
 {
-    public class GcdOverlayPreset : IOverlayPreset
+    public class OverlayPreset : IOverlayPreset
     {
         public string Name { get; set; }
         public string Type { get; set; } = "MiniParse";
@@ -23,10 +23,10 @@ namespace OverlayPluginAddon
     }
 
     /// <summary>
-    /// The ACT plugin shell: finds OverlayPlugin, starts <see cref="GcdEventSource"/>, registers
+    /// The ACT plugin shell: finds OverlayPlugin, starts <see cref="AddonEventSource"/>, registers
     /// the export columns, the mopimopi preset that renders them, and the auto-updater.
     /// </summary>
-    public class GcdOverlayAddon : IActPluginV1, IOverlayAddonV2
+    public class OverlayAddon : IActPluginV1, IOverlayAddonV2
     {
         /// <summary>GitHub repository the auto-updater watches. Releases must be tagged v{VERSION}
         /// and carry OverlayPluginAddon-{VERSION}.zip.</summary>
@@ -34,17 +34,18 @@ namespace OverlayPluginAddon
 
         public static string PluginPath { get; private set; } = string.Empty;
 
-        private GcdEventSource eventSource;
+        private AddonEventSource eventSource;
         private bool isInitialized;
 
         public void InitPlugin(TabPage pluginScreenSpace, Label pluginStatusText)
         {
-            pluginStatusText.Text = "OverlayPluginAddon (GCD uptime) Plugin Ready.";
+            pluginStatusText.Text = "OverlayPluginAddon (rDPS + GCD uptime) Plugin Ready.";
 
             // No settings UI - the recast table is a file and everything else is diagnostics.
             if (pluginScreenSpace?.Parent is TabControl parentTab)
                 parentTab.TabPages.Remove(pluginScreenSpace);
 
+            // Where we were loaded from, which is the only way to find anything we ship with.
             foreach (var plugin in ActGlobals.oFormActMain.ActPlugins)
             {
                 if (plugin.pluginObj == this)
@@ -53,6 +54,8 @@ namespace OverlayPluginAddon
                     break;
                 }
             }
+
+            PrivateAssemblies.ResolveFrom(PluginDirectory());
 
             // During ACT boot OverlayPlugin has not finished its second init phase yet, so
             // resolving services here would either throw or make TinyIoC build throwaway
@@ -86,7 +89,7 @@ namespace OverlayPluginAddon
                 var registry = container?.Resolve<Registry>();
                 if (registry == null) return;
 
-                eventSource = new GcdEventSource(container);
+                eventSource = new AddonEventSource(container);
 
                 // Order matters: the export variables have to exist before MiniParse builds its
                 // next CombatData payload, and StartEventSource is what begins feeding the tracker.
@@ -233,7 +236,7 @@ namespace OverlayPluginAddon
             // another addon, RdpsOverlay included) already claimed would just show up twice.
             if (registry.OverlayPresets.Any(p => p.Name == presetName)) return;
 
-            registry.RegisterOverlayPreset2(new GcdOverlayPreset
+            registry.RegisterOverlayPreset2(new OverlayPreset
             {
                 Name = presetName,
                 Url = url,

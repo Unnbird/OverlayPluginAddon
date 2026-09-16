@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using OverlayPluginAddon.Fflogs;
 
 namespace OverlayPluginAddon
 {
@@ -10,6 +11,9 @@ namespace OverlayPluginAddon
         public bool HardCast;
         public double RecastMs;
         public double GapMs;
+
+        /// <summary>How much of the gap nothing could be hit, and so was never this player's to fill.</summary>
+        public double DownMs;
         public double OccupiedMs;
         public double LostMs;
     }
@@ -38,6 +42,12 @@ namespace OverlayPluginAddon
         /// The cast still in flight is not in it.
         /// </summary>
         public double OccupiedSeconds;
+
+        /// <summary>
+        /// Seconds from this player's first press to their latest one with the downtime windows
+        /// taken out - the span the lost time is measured against.
+        /// </summary>
+        public double ActiveSeconds;
 
         /// <summary>Whether the speed stat came from observation rather than the default.</summary>
         public bool RecastEstimated;
@@ -160,6 +170,9 @@ namespace OverlayPluginAddon
             // What the overlay is showing. Measured when a cast is recorded or removed, and only
             // then - see StatsFor.
             public GcdStats Snapshot;
+
+            /// <summary>Which set of downtime windows Snapshot was measured against.</summary>
+            public int SnapshotVersion = -1;
         }
 
         private readonly Dictionary<string, PlayerGcd> byPlayer =
@@ -172,7 +185,44 @@ namespace OverlayPluginAddon
             this.actions = actions;
         }
 
+        /// <summary>Sorted, merged stretches when nothing could be hit. See SetDowntimeWindows.</summary>
+        private IReadOnlyList<DowntimeWindow> windows = Array.Empty<DowntimeWindow>();
+
+        /// <summary>Bumped whenever the windows change, so a stored snapshot knows it is stale.</summary>
+        private int windowsVersion;
+
         public void Clear() => byPlayer.Clear();
+
+        /// <summary>
+        /// The stretches of the fight when nothing could be hit, from the FFLogs parser's zone
+        /// handler (see <see cref="DowntimeWindows"/>).
+        ///
+        /// Time inside one of them is taken out of both halves of the measurement: the gap it sits
+        /// in is not lost GCD time, and it is not in the span the lost time is measured against.
+        /// This is xivanalysis' model, whose denominator is the fight minus its downtime windows,
+        /// and it is the difference between M8S' minute-long transition reading as a minute of
+        /// clipping and reading as nothing at all. With no windows every gap is charged.
+        /// </summary>
+        /// <returns>Whether anything changed.</returns>
+        public bool SetDowntimeWindows(IEnumerable<DowntimeWindow> incoming)
+        {
+            var merged = DowntimeWindows.Merge(incoming);
+            if (merged.Count == windows.Count)
+            {
+                var same = true;
+                for (var i = 0; i < merged.Count && same; i++)
+                    same = merged[i].Start == windows[i].Start && merged[i].End == windows[i].End;
+                if (same) return false;
+            }
+
+            windows = merged;
+            windowsVersion++;
+            return true;
+        }
+
+        /// <summary>How much of [fromMs, toMs) nothing could be hit.</summary>
+        public double DowntimeBetween(double fromMs, double toMs) =>
+            DowntimeWindows.Between(windows, fromMs, toMs);
 
         /// <summary>
         /// Records one GCD cast.
@@ -209,6 +259,7 @@ namespace OverlayPluginAddon
             state.LastActionId = actionId;
             state.LastTimeMs = timeMs;
             state.Snapshot = Measure(state, null);
+            state.SnapshotVersion = windowsVersion;
         }
 
         /// <summary>
@@ -293,6 +344,7 @@ namespace OverlayPluginAddon
             {
                 state.LastTimeMs = double.NaN;
                 state.Snapshot = Measure(state, null);
+            state.SnapshotVersion = windowsVersion;
                 return;
             }
 
@@ -302,6 +354,7 @@ namespace OverlayPluginAddon
             state.LastActionId = previous.ActionId;
             state.LastTimeMs = previous.TimeMs;
             state.Snapshot = Measure(state, null);
+            state.SnapshotVersion = windowsVersion;
         }
 
         /// <summary>
@@ -336,7 +389,17 @@ namespace OverlayPluginAddon
             if (string.IsNullOrEmpty(player) || !byPlayer.TryGetValue(player, out var state))
                 return new GcdStats { Recast = ActionData.BaseGcdMs / 1000.0 };
 
-            if (!includeTrace) return state.Snapshot;
+            if (!includeTrace)
+            {
+                // A window that opened or closed since the last press changes what the presses
+                // before it mean, so a stale snapshot is re-measured rather than handed back.
+                if (state.SnapshotVersion != windowsVersion)
+                {
+                    state.Snapshot = Measure(state, null);
+                    state.SnapshotVersion = windowsVersion;
+                }
+                return state.Snapshot;
+            }
 
             // Nothing outside the cast list goes into the measurement, so re-deriving it with a
             // trace attached reproduces the snapshot exactly: the rows add up to the number shown.
@@ -390,18 +453,24 @@ namespace OverlayPluginAddon
 
                 occupiedMs += recast;
 
+                // Only the part of the gap when there was something to hit can be lost: the rest is
+                // the boss being untargetable, which is nobody's clipping. A press right before a
+                // minute-long transition and another right after it is a clean rotation.
+                var down = DowntimeBetween(cast.TimeMs, state.Casts[i + 1].TimeMs);
+                var idle = gap - down;
+
                 // Slidecast slack belongs only to a cast that gated the GCD: that is the one whose
                 // bar the next press waited on. A Blizzard I runs 1.97s under a 2.45s recast - the
                 // recast gates, the bar is irrelevant, and a press 0.5s after the recast ended is
                 // half a second of idle, not a slidecast.
                 var slack = GcdErrorOffsetMs + (castGated ? SlidecastOffsetMs : 0);
-                var lost = gap > recast + slack ? gap - recast : 0;
+                var lost = idle > recast + slack ? idle - recast : 0;
                 clipMs += lost;
 
                 trace?.Add(new GcdCastTrace
                 {
                     ActionId = cast.ActionId, TimeMs = cast.TimeMs, HardCast = cast.HardCast,
-                    RecastMs = recast, GapMs = gap, OccupiedMs = recast, LostMs = lost,
+                    RecastMs = recast, GapMs = gap, DownMs = down, OccupiedMs = recast, LostMs = lost,
                 });
             }
 
@@ -410,7 +479,7 @@ namespace OverlayPluginAddon
             trace?.Add(new GcdCastTrace
             {
                 ActionId = newest.ActionId, TimeMs = newest.TimeMs, HardCast = newest.HardCast,
-                RecastMs = OccupiedMs(newest, skillStat, spellStat, out _), GapMs = 0, OccupiedMs = 0, LostMs = 0,
+                RecastMs = OccupiedMs(newest, skillStat, spellStat, out _), GapMs = 0, DownMs = 0, OccupiedMs = 0, LostMs = 0,
             });
 
             stats.Trace = trace;
@@ -426,7 +495,12 @@ namespace OverlayPluginAddon
             // real pause cost. Keep attacking after a break and the reading climbed back to 100%.
             // Lost time is charged only past the slack, so jitter never counts and a break never
             // stops counting.
-            var spanMs = newest.TimeMs - state.Casts[0].TimeMs;
+            //
+            // The span is the player's own presses with the downtime windows taken out, matching
+            // the numerator: both halves count only the time there was something to hit.
+            var spanMs = newest.TimeMs - state.Casts[0].TimeMs
+                - DowntimeBetween(state.Casts[0].TimeMs, newest.TimeMs);
+            stats.ActiveSeconds = Math.Max(0, spanMs) / 1000.0;
             if (spanMs > 0)
                 stats.Uptime = Math.Max(0.0, Math.Min(1.0, 1.0 - clipMs / spanMs));
 
