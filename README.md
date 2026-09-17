@@ -70,21 +70,21 @@ GCD 欄位：
 | `fflogsDamage` | FFLogs 記的傷害。**不含**它另外獨立成列的寵物（巴哈姆特等） |
 | `fflogsHits` / `fflogsCrithits` / `fflogsDirectHitCount` / `fflogsCritDirectHitCount` | 命中／暴擊／直擊／暴直次數 |
 | `fflogsMaxhit` / `fflogsMAXHIT` | 最大單次傷害，`技能名-數字` 與純數字兩種寫法（照 ACT 的格式） |
-| `fflogsHealed` / `fflogsOverHeal` / `fflogsHeals` / `fflogsCritheals` | 治療量（含溢出，照 ACT 的算法）、溢出量、次數 |
-| `fflogsMaxheal` / `fflogsMAXHEAL` | 最大單次治療 |
+| `fflogsHealed` / `fflogsOverHeal` / `fflogsHeals` / `fflogsCritheals` | 治療量（含溢出，照 ACT 的算法）、溢出量、次數。**這一版解析器對玩家不記治療**（它只把 NPC 與寵物標成友方），那時整組送空字串，不送 0 |
+| `fflogsMaxheal` / `fflogsMAXHEAL` | 最大單次治療。同上 |
 | `fflogsDeaths` | 死亡次數 |
 | `fflogsDuration` | **傷害**欄位的除數：戰鬥時長減去 downtime。**帶小數，不是整數秒** |
 | `fflogsHealDuration` | **治療**欄位的除數：整場，不扣 downtime。同樣帶小數 |
 
-整場那一層（`EncounterData.ExportVariables`）：`fflogsDamage`、`fflogsHealed`、`fflogsRdps`、`fflogsEncdps`、`fflogsEnchps`、`fflogsDuration`、`fflogsHealDuration`、`fflogsDowntime`、`fflogsApplied`、`fflogsParserVersion`。`fflogsEncdps` / `fflogsEnchps` 是懸浮窗標題列印的全隊總計 —— 在這裡除好，用的是每一列用的同兩個時鐘，標題才不會描述一場跟底下表格不同的戰鬥。
+整場那一層（`EncounterData.ExportVariables`）：`fflogsDamage`、`fflogsHealed`、`fflogsRdps`、`fflogsEncdps`、`fflogsEnchps`、`fflogsDuration`、`fflogsHealDuration`、`fflogsDurationText`、`fflogsFightId`、`fflogsDowntime`、`fflogsApplied`、`fflogsParserVersion`。`fflogsDurationText` 是給標題列印的 `mm:ss`：ACT 自己的時間在過場時會從頭算起（它把戰鬥判定為結束又重開），底下每個數字卻還是整場的。`fflogsFightId` 是這一場的編號，過場時不變 —— 懸浮窗靠它分辨「ACT 暫時忘掉的那一列」與「已經離隊的人」。`fflogsEncdps` / `fflogsEnchps` 是懸浮窗標題列印的全隊總計 —— 在這裡除好，用的是每一列用的同兩個時鐘，標題才不會描述一場跟底下表格不同的戰鬥。
 
 **每秒的欄位一律在這裡除。** 單人的時候 rDPS 照定義就等於 DPS（沒人給你團輔、你也沒給別人），所以只要這兩欄不是同一個地方除出來的，它們就會對不上：先是懸浮窗把時鐘捨成整數，一個除 30.4、一個除 30，差 1～2%；把時鐘改成帶小數送過去之後，換成懸浮窗把 30.456 讀成 30.45。所以 `fflogsDps` / `fflogsHps` 跟 rDPS 家族一樣除好再送，懸浮窗原樣顯示。
 
 時鐘還是照送，而且**不要四捨五入到整秒**：舊版懸浮窗仍然自己除，`fflogsDuration` 帶小數才不會又差一次。
 
-**空字串代表 FFLogs 沒有這一列**（NPC，或兩邊名字拼法不同）。有這一列的話一定是數字，**包含 0** —— 已經被解析器折進主人的寵物就是 0。
+**空字串代表 FFLogs 沒有量到這一格**：這一列它不認得（NPC，或兩邊名字拼法不同）、這一整組它填不了（治療），或這一場它根本不在報（`fflogsApplied` 是 0）。量到的話一定是數字，**包含 0** —— 已經被解析器折進主人的寵物就是 0，那是「算在主人身上了」，不是「沒量」。
 
-懸浮窗怎麼處理空字串是它自己的事；mopimopi 是原樣顯示（也就是 0），不退回 ACT 的數字 —— 同一列上混兩個來源的數字，等於把同一場戰鬥的兩種量法並排放在相鄰欄位。
+懸浮窗看到空字串就該保留 ACT 的數字，而且要**整組一起**：混的是同一場戰鬥的兩種量法並排在相鄰欄位（FFLogs 的 rDPS 配 ACT 的傷害），但一整組沒人量過的欄位不是混 —— 那組數字只有 ACT 有。治療就是這一組：把它的 0 蓋上去之後，治療欄變 0、旁邊的盾與溢療還是 ACT 的，有效治療就成了負數。mopimopi 的 `preferFflogs()` 照這個規則分成時鐘、傷害、治療三組。
 
 除錯用的自訂事件 `onGcdUpdate` 每秒推一次；用 `getGcdData` 也可以主動拉。
 
@@ -109,6 +109,8 @@ FFLogs 用兩個不同的除數，這不是我們的慣例，是它上傳器自�
 **傷害除以「戰鬥時長 − downtime」，治療除以整場。** downtime 是 boss 完全打不到的那段（M8S 兩個本體之間的一分鐘、絕歐米茄的每次換場）。用整場去除傷害，在有一分鐘 downtime 的戰鬥會低估大約 8%，欄位就對不上它要鏡像的那份 FFLogs 報告。
 
 同一組 downtime 也要從 GCD 運轉率兩邊扣掉：坐在 downtime 裡的空窗不是玩家能填的空窗，而它也不該留在分母裡。`fight.downtime` 只有總量，區間本身在 zone handler 上，而 handler 是一場一場手寫的，**分成三種欄位形狀**（見 [DowntimeWindows.cs](OverlayPluginAddon/Fflogs/DowntimeWindows.cs)）。三種都要讀 —— 讀錯一種比完全不讀更糟：被誤判成「永不關閉」的視窗會把它之後所有真實空轉都吃掉。
+
+**視窗要記在這一場上，不能每次 collect 重讀就算。** 解析器在戰鬥一結束就把 `meterFight` 丟掉，連帶 handler 也沒了，於是這一拉的最後一次 collect —— 也就是大家真正在看的那一份數字 —— 讀到零個視窗，每個 GCD 數字當場用「沒有 downtime」重算一次，整場一直正確忽略掉的過場又變回一分多鐘的空窗。[MeterPipeline](OverlayPluginAddon/Fflogs/MeterPipeline.cs) 因此用 fight id 把視窗留著，換場（換 fight id）才清掉；視窗以 start 為鍵，還開著的那個每次 collect 會用更晚的 end 覆蓋自己。
 
 ## FFLogs 解析器
 

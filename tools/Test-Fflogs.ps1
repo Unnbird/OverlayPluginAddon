@@ -240,6 +240,27 @@ Check "no deaths table"    $emptyFight.HasDeaths "False"
 $emptySnapshot = $snapshotType::Build($emptyFight, $true, "durations match", $noWindows)
 Check "nothing to look up" $(if ($null -eq $emptySnapshot.Lookup("Viper A")) { "null" } else { "found" }) "null"
 
+Section "a fight the parser measured no healing for"
+# This build of parser-ff.js marks only NPCs and pets as friendly for its healing meters, so a
+# player's healing never reaches them and every healing figure would be a zero meaning "not
+# measured". Reported as zero it overwrote ACT's healing - the only healing anyone has - and
+# effective healing, ACT's shield still beside it, came out negative.
+$engine.Execute("globalThis.noHeal = JSON.parse(JSON.stringify(globalThis.fight)); globalThis.noHeal.friendlyHealing = { actors: {} };")
+$noHealFight = $outputType::ReadFight($engine.Script.noHeal, $pets)
+Check "the fight has no healing table"     $noHealFight.HasHealing "False"
+$noHealSnapshot = $snapshotType::Build($noHealFight, $true, "durations match", $noWindows)
+Check "the snapshot says so"               $noHealSnapshot.HasHealing "False"
+Check "and every row with it"              $noHealSnapshot.Lookup("Viper A").HasHealing "False"
+Check "while the damage is untouched"      $noHealSnapshot.Lookup("Viper A").Damage 16803305
+
+# The same rows on the fight that does have one, so a row cannot be told from its flag alone.
+Check "a fight with healing says so"       $snapshot.Lookup("My Name").HasHealing "True"
+Check "and carries the figure"             $snapshot.Lookup("My Name").Healed (3000000 + 900000)
+# A pet the parser folded into its owner: zero, and the flag is the fight's, or the overlay cannot
+# tell "counted under the owner" from "not measured" and adds ACT's figure on top.
+Check "a folded pet reads zero"            $snapshot.Lookup("Carbuncle (Summoner S)").Healed 0
+Check "with the fight's flag"              $snapshot.Lookup("Carbuncle (Summoner S)").HasHealing "True"
+
 Section "what counts as a new pull"
 # ACT ends an encounter whenever combat drops for its idle timeout, and a scripted phase transition
 # is exactly that. FFLogs keeps the pull as one fight and every damage column reports it as one, so

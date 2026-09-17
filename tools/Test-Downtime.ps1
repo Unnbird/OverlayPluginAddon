@@ -144,6 +144,53 @@ $overlapping = WindowsOf '{ downtimePeriods: [{ start: 10000, end: 20000 }, { st
 Check "merged" (Describe $overlapping) "10-25,30-35"
 Check "counted once" (TotalSeconds $overlapping) 20
 
+# ---------------------------------------------------------------- the pull keeps its windows
+Section "windows outlive the handler that reported them"
+# The parser drops its zone handler the moment the fight ends, so the last collect of a pull - the
+# one whose figures everybody actually reads - arrives with no windows at all. Without keeping them
+# per fight, every GCD figure was re-measured at that moment with nothing to exclude, and a
+# transition that had been correctly ignored all fight turned back into a minute of clipping.
+$pipelineType = $asm.GetType("OverlayPluginAddon.Fflogs.MeterPipeline")
+$collectionType = $asm.GetType("OverlayPluginAddon.Fflogs.ParserCollection")
+$decisionType = $asm.GetType("OverlayPluginAddon.Fflogs.AppliedDecision")
+$takeEveryFight = [System.Delegate]::CreateDelegate($decisionType, $pipelineType, "TakeEveryFight")
+$pipeline = [Activator]::CreateInstance($pipelineType, @($takeEveryFight, $null))
+
+$engine.Execute(@'
+globalThis.pipelineFight = {
+  id: 9, state: 'inprogress', startTime: 0, endTime: 600000, downtime: 60000,
+  zone: { id: 1, name: 'Zone' },
+  friendlyDamage: { actors: { 1: { id: 1, name: 'A', fullType: 'Viper',
+    amount: 100, amountTaken: 0, singleTargetAmountTaken: 0, amountGiven: 0, over: 0,
+    hitDetails: { hitCount: 1, criticalCount: 0, directHitCount: 0, criticalDirectHitCount: 0, maxHit: 100, minHit: 100 },
+    abilities: {} } } },
+  friendlyHealing: { actors: {} },
+  deaths: { actors: {} },
+};
+globalThis.pipelineMeters = { fights: [globalThis.pipelineFight] };
+globalThis.pipelineOutput = { petsIdTable: new Map(), petsTable: [], getActor: function () { return { unitName: '' }; } };
+globalThis.liveHandler = { downtimeTracker: { committedIntervals: [{ start: 60000, end: 120000 }], pendingInterval: null } };
+'@)
+
+$withHandler = [Activator]::CreateInstance($collectionType,
+    @($engine.Script.pipelineMeters, $engine.Script.pipelineOutput, $engine.Script.liveHandler, [long]$LAST_LINE))
+$pipeline.Accept($withHandler)
+Check "read while the fight runs" $pipeline.Current.Downtime.Count 1
+Check "the fight's downtime agrees" $pipeline.Current.Clocks.Downtime 60
+
+# The fight ends. The parser drops meterFight, and with it the only handler there was to read.
+$engine.Execute("globalThis.pipelineFight.state = 'kill';")
+$noHandler = [Activator]::CreateInstance($collectionType,
+    @($engine.Script.pipelineMeters, $engine.Script.pipelineOutput, $null, [long]$LAST_LINE))
+$pipeline.Accept($noHandler)
+Check "kept when the handler is gone" $pipeline.Current.Downtime.Count 1
+Check "unchanged" (Describe $pipeline.Current.Downtime) "60-120"
+
+# A new pull. Its windows are its own, and the last one's do not follow it.
+$engine.Execute("globalThis.pipelineFight.id = 10;")
+$pipeline.Accept($noHandler)
+Check "a new fight starts with none" $pipeline.Current.Downtime.Count 0
+
 $engine.Dispose()
 
 ""

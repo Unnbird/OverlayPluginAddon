@@ -24,6 +24,18 @@ namespace OverlayPluginAddon.Fflogs
         public HitDetails HealHits = new HitDetails();
         public string MaxHealAbility = string.Empty;
 
+        /// <summary>
+        /// Whether FFLogs has a healing table for this fight at all.
+        ///
+        /// It usually does not. The parser build in data/ only marks NPCs and pets as friendly for
+        /// the healing meters, so a player's healing never reaches them: every healing figure on
+        /// this row would be a zero that means "not measured", not "healed nothing". The healing
+        /// columns report nothing at all in that case, and ACT's healing - the only healing anyone
+        /// has - stands. Without this the overlay wrote FFLogs' zero over ACT's healing while the
+        /// shield and overheal columns beside it kept ACT's, and effective healing went negative.
+        /// </summary>
+        public bool HasHealing;
+
         public int Deaths;
 
         /// <summary>
@@ -49,9 +61,12 @@ namespace OverlayPluginAddon.Fflogs
         public double RdpsDelta;
         public double RdpsPct;
 
-        /// <summary>A pet the parser already folded into its owner, or one it never saw: every
-        /// figure is zero so mopimopi's merge() cannot add it on top of the owner's total.</summary>
-        public static readonly PlayerFigures Zero = new PlayerFigures();
+        /// <summary>
+        /// A pet the parser already folded into its owner, or one it never saw: every figure is
+        /// zero so mopimopi's merge() cannot add it on top of the owner's total. Built per snapshot
+        /// rather than shared, because <see cref="HasHealing"/> belongs to the fight.
+        /// </summary>
+        public static PlayerFigures ZeroWith(bool hasHealing) => new PlayerFigures { HasHealing = hasHealing };
     }
 
     /// <summary>
@@ -168,6 +183,7 @@ namespace OverlayPluginAddon.Fflogs
                     RdpsPct = rdpsTotal > 0 ? (row.Amount - row.AmountTaken + row.AmountGiven) / rdpsTotal * 100 : 0,
                 };
 
+                figures.HasHealing = fight.HasHealing;
                 if (healing != null)
                 {
                     figures.Healed = healing.Own.Amount + healing.Own.Over;
@@ -187,6 +203,7 @@ namespace OverlayPluginAddon.Fflogs
                 fight.Deaths.TryGetValue(row.Name, out var deaths);
                 snapshot.rows[row.Name] = new PlayerFigures
                 {
+                    HasHealing = fight.HasHealing,
                     Healed = row.Own.Amount + row.Own.Over,
                     OverHeal = row.Own.Over,
                     HealHits = row.Own.Hits,
@@ -205,8 +222,8 @@ namespace OverlayPluginAddon.Fflogs
         ///
         /// Null means FFLogs has nothing for this row (an NPC, a name the two sides spell
         /// differently) and ACT's own figures should stand. That is not the same as
-        /// <see cref="PlayerFigures.Zero"/>, which is a pet the parser has already counted under its
-        /// owner and which must therefore contribute nothing.
+        /// <see cref="PlayerFigures.ZeroWith"/>, which is a pet the parser has already counted under
+        /// its owner and which must therefore contribute nothing.
         /// </summary>
         public PlayerFigures Lookup(string actName)
         {
@@ -225,9 +242,11 @@ namespace OverlayPluginAddon.Fflogs
 
             var damagePet = ownerDamage?.PetNamed(pet.Value.Base);
             var healingPet = ownerHealing?.PetNamed(pet.Value.Base);
-            if (damagePet == null && healingPet == null) return PlayerFigures.Zero;
+            // Zero, but carrying this fight's healing flag: a folded pet must report a zero the
+            // overlay can add to its owner, and only where there is a healing table to add it to.
+            if (damagePet == null && healingPet == null) return PlayerFigures.ZeroWith(HasHealing);
 
-            var figures = new PlayerFigures();
+            var figures = new PlayerFigures { HasHealing = HasHealing };
             if (damagePet != null)
             {
                 figures.Damage = damagePet.Amount;

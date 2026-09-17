@@ -73,7 +73,9 @@ $takeEveryFight = [System.Delegate]::CreateDelegate($decisionType, $pipelineType
 # the whole process down with it, with no error and no stack. What they would have reported is read
 # back off LastError at the end instead.
 $pipeline = [Activator]::CreateInstance($pipelineType, @($takeEveryFight, $null))
-$parser = [Activator]::CreateInstance($hostType, @([string](Join-Path $repo "data\parser-ff.js"), $null))
+# Three arguments, not two: CreateInstance does not fill in the optional native search path, and
+# leaving it off fails with "Constructor on type ... not found".
+$parser = [Activator]::CreateInstance($hostType, @([string](Join-Path $repo "data\parser-ff.js"), $null, [string]$dir))
 
 $collected = $hostType.GetEvent("Collected")
 $collected.AddEventHandler($parser, [System.Delegate]::CreateDelegate(
@@ -118,9 +120,9 @@ $snapshot = $pipeline.Current
 "lines parsed {0:N0}, line errors {1:N0}, collects {2:N0}" -f $parser.LinesParsed, $parser.LineErrors, $parser.Collections
 if ($parser.LastError) { "last error: $($parser.LastError)" }
 ""
-"fight {0}  state {1}  duration {2:N1}s  downtime {3:N1}s  damage clock {4:N1}s  ({5})" -f `
+"fight {0}  state {1}  duration {2:N1}s  downtime {3:N1}s in {4} window(s)  damage clock {5:N1}s  ({6})" -f `
     $snapshot.FightId, $snapshot.FightState, $snapshot.Clocks.Seconds, $snapshot.Clocks.Downtime,
-    $snapshot.Clocks.Active, $snapshot.Reason
+    $snapshot.Downtime.Count, $snapshot.Clocks.Active, $snapshot.Reason
 ""
 
 $rows = @()

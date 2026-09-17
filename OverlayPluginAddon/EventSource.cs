@@ -650,7 +650,11 @@ namespace OverlayPluginAddon
             // shape as fflogsDamage - own, with the kept-apart pets carrying their own share on
             // their own rows - so an overlay that sums pets into the owner still adds up.
             AddFflogs("fflogsDps", "DPS (FFLogs)", "Damage per second over the fight minus its downtime. Already divided; show it as it came. Excludes pets FFLogs keeps as rows of their own, which carry theirs.", f => Rate(f.Dps));
-            AddFflogs("fflogsHps", "HPS (FFLogs)", "Healing per second over the whole fight, overheal included the way ACT counts it. Already divided; show it as it came.", f => Rate(f.Hps));
+            // Empty whenever FFLogs has no healing table for this fight, which is nearly always:
+            // see PlayerFigures.HasHealing. Reporting the zero instead let it overwrite the only
+            // healing anyone has.
+            AddFflogs("fflogsHps", "HPS (FFLogs)", "Healing per second over the whole fight, overheal included the way ACT counts it. Already divided; show it as it came.",
+                f => f.HasHealing ? Rate(f.Hps) : "");
 
             AddFflogs("fflogsDamage", "Damage (FFLogs)", "Damage as FFLogs' parser books it, excluding pets it keeps as rows of their own.", f => Whole(f.Damage));
             AddFflogs("fflogsHits", "Hits (FFLogs)", "Hit count as FFLogs' parser books it.", f => Whole(f.Hits.HitCount));
@@ -660,12 +664,13 @@ namespace OverlayPluginAddon
             AddFflogs("fflogsMaxhit", "Biggest hit (FFLogs)", "Biggest single hit and the ability that dealt it, as ACT spells it: Ability-12345.", MaxHitText);
             AddFflogs("fflogsMAXHIT", "Biggest hit value (FFLogs)", "Biggest single hit, the bare number.", f => Whole(f.Hits.MaxHit));
 
-            AddFflogs("fflogsHealed", "Healing (FFLogs)", "Healing including overheal, the way ACT counts it. FFLogs keeps the two apart; this adds them back.", f => Whole(f.Healed));
-            AddFflogs("fflogsOverHeal", "Overheal (FFLogs)", "Healing that landed on full health.", f => Whole(f.OverHeal));
-            AddFflogs("fflogsHeals", "Heal count (FFLogs)", "Number of healing hits.", f => Whole(f.HealHits.HitCount));
-            AddFflogs("fflogsCritheals", "Crit heals (FFLogs)", "Number of critical healing hits.", f => Whole(f.HealHits.CriticalCount));
+            AddFflogs("fflogsHealed", "Healing (FFLogs)", "Healing including overheal, the way ACT counts it. FFLogs keeps the two apart; this adds them back. Empty when this build of the parser measured no player healing at all.",
+                f => f.HasHealing ? Whole(f.Healed) : "");
+            AddFflogs("fflogsOverHeal", "Overheal (FFLogs)", "Healing that landed on full health.", f => f.HasHealing ? Whole(f.OverHeal) : "");
+            AddFflogs("fflogsHeals", "Heal count (FFLogs)", "Number of healing hits.", f => f.HasHealing ? Whole(f.HealHits.HitCount) : "");
+            AddFflogs("fflogsCritheals", "Crit heals (FFLogs)", "Number of critical healing hits.", f => f.HasHealing ? Whole(f.HealHits.CriticalCount) : "");
             AddFflogs("fflogsMaxheal", "Biggest heal (FFLogs)", "Biggest single heal and the ability that cast it.", MaxHealText);
-            AddFflogs("fflogsMAXHEAL", "Biggest heal value (FFLogs)", "Biggest single heal, the bare number.", f => Whole(f.HealHits.MaxHit));
+            AddFflogs("fflogsMAXHEAL", "Biggest heal value (FFLogs)", "Biggest single heal, the bare number.", f => f.HasHealing ? Whole(f.HealHits.MaxHit) : "");
 
             AddFflogs("fflogsDeaths", "Deaths (FFLogs)", "Deaths as FFLogs' parser counts them.", f => Whole(f.Deaths));
 
@@ -673,20 +678,39 @@ namespace OverlayPluginAddon
             // its downtime and healing by the whole fight; an overlay that divides both by one
             // clock disagrees with the report it is mirroring.
             AddFflogs("fflogsDuration", "Duration (FFLogs)", "Seconds the damage columns are divided by: the fight minus the stretches when nothing could be hit.", _ => Clock(meters.Clocks.Active));
+            // The clock, not a healing figure: it is the fight's whether or not FFLogs measured any
+            // healing, and ACT's healing divided by it is still a rate over this pull.
             AddFflogs("fflogsHealDuration", "Heal duration (FFLogs)", "Seconds the healing columns are divided by: the whole fight, downtime included.", _ => Clock(meters.Clocks.Seconds));
 
             AddEncounter("fflogsDamage", "Damage (FFLogs)", "The raid's damage as FFLogs' parser books it.", m => Whole(m.EncounterDamage));
-            AddEncounter("fflogsHealed", "Healing (FFLogs)", "The raid's healing including overheal.", m => Whole(m.EncounterHealed));
+            AddEncounter("fflogsHealed", "Healing (FFLogs)", "The raid's healing including overheal. Empty when the parser measured no player healing.",
+                m => m.HasHealing ? Whole(m.EncounterHealed) : "");
             AddEncounter("fflogsRdps", "rDPS total (FFLogs)", "The raid's rDPS numerator, which every row's rDPS % is a share of.", m => Whole(m.EncounterRdpsAmount));
             // The overlay prints these as the header totals. Divided here, against the same clocks
             // the rows were, so the header cannot describe a different pull from the table under it.
             AddEncounter("fflogsEncdps", "Raid DPS (FFLogs)", "The raid's damage per second, over the fight minus its downtime.",
                 m => Whole(m.EncounterDamage / (m.Clocks.Active > 0 ? m.Clocks.Active : 1)));
             AddEncounter("fflogsEnchps", "Raid HPS (FFLogs)", "The raid's healing per second, over the whole fight.",
-                m => Whole(m.EncounterHealed / (m.Clocks.Seconds > 0 ? m.Clocks.Seconds : 1)));
+                m => m.HasHealing ? Whole(m.EncounterHealed / (m.Clocks.Seconds > 0 ? m.Clocks.Seconds : 1)) : "");
             AddEncounter("fflogsDuration", "Duration (FFLogs)", "Seconds the damage columns are divided by.", m => Clock(m.Clocks.Active));
             AddEncounter("fflogsHealDuration", "Heal duration (FFLogs)", "Seconds the healing columns are divided by.", m => Clock(m.Clocks.Seconds));
             AddEncounter("fflogsDowntime", "Downtime (FFLogs)", "Seconds of this fight when nothing could be hit.", m => Clock(m.Clocks.Downtime));
+
+            // The pull's clock as a clock, for the overlay's header.
+            //
+            // ACT's own duration restarts at a phase transition, because ACT ends the encounter
+            // when combat drops and opens another one when it resumes. Every figure beside it is
+            // the whole pull's, so the header read "00:42" over a table describing fourteen
+            // minutes. This is the fight's own elapsed time, downtime included - the clock FFLogs
+            // shows a pull under, and the one the damage in the same message was measured over.
+            AddEncounter("fflogsDurationText", "Duration (FFLogs, mm:ss)", "The pull's elapsed time as the overlay shows it, from the parser's fight rather than ACT's encounter.",
+                m => DurationText(m.Clocks.Seconds));
+
+            // Which pull these figures describe. An overlay that sees the id hold while ACT's
+            // encounter restarts knows the two halves of a split pull are one fight - and that a
+            // row ACT has not booked yet is a row it is about to, not a player who left.
+            AddEncounter("fflogsFightId", "Fight id (FFLogs)", "The parser's id for this pull. Unchanged across a phase transition that ACT reports as two encounters.",
+                m => m.FightId.ToString(CultureInfo.InvariantCulture));
             // These two are the answer to "why is the table ACT's?", so they report even when
             // nothing was applied - which is exactly when someone wants to read them.
             AddEncounter("fflogsApplied", "FFLogs applied", "1 when the parser's fight is the pull ACT is reporting, 0 when every column is ACT's own.",
@@ -708,11 +732,22 @@ namespace OverlayPluginAddon
         /// </summary>
         private static string Clock(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
+        /// <summary>A clock the way ACT writes one: mm:ss, and h:mm:ss once past an hour.</summary>
+        private static string DurationText(double seconds)
+        {
+            var whole = (int)Math.Max(0, Math.Floor(seconds));
+            var hours = whole / 3600;
+            var minutes = whole % 3600 / 60;
+            return hours > 0
+                ? string.Format(CultureInfo.InvariantCulture, "{0}:{1:00}:{2:00}", hours, minutes, whole % 60)
+                : string.Format(CultureInfo.InvariantCulture, "{0:00}:{1:00}", minutes, whole % 60);
+        }
+
         /// <summary>The biggest hit as ACT spells it: the ability's name, a dash, and the number.</summary>
         private static string MaxHitText(PlayerFigures f) =>
             f.Hits.MaxHit <= 0 ? "" : (f.MaxHitAbility.Length > 0 ? f.MaxHitAbility : "?") + "-" + Whole(f.Hits.MaxHit);
 
-        private static string MaxHealText(PlayerFigures f) =>
+        private static string MaxHealText(PlayerFigures f) => !f.HasHealing ? "" :
             f.HealHits.MaxHit <= 0 ? "" : (f.MaxHealAbility.Length > 0 ? f.MaxHealAbility : "?") + "-" + Whole(f.HealHits.MaxHit);
 
         /// <summary>
