@@ -223,8 +223,8 @@ window.setErrorText = function (t) { __host.Error(String(t)); };
             var sw = Stopwatch.StartNew();
 
             // ClearScript looks for ClearScriptV8.win-x64.dll beside its own assembly. That works
-            // when the resolver in Addon.cs handed it over with LoadFrom, and this covers the case
-            // where it did not.
+            // when PrivateAssemblies handed it over with LoadFrom, and this covers the case where
+            // it did not.
             if (!string.IsNullOrEmpty(nativeSearchPath)) HostSettings.AuxiliarySearchPath = nativeSearchPath;
 
             // EnableDateTimeConversion so setLogStartDate can be handed a DateTime; the parser folds

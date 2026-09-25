@@ -162,7 +162,14 @@ try {
     # the dll from bytes with nothing else on the probing path (see the README's build section);
     # the last four are transitive and were not obvious.
     #
-    # Keep the layout flat: ClearScript finds ClearScriptV8.win-x64.dll beside its own assembly.
+    # They go in lib/ rather than beside the dll. PrivateAssemblies loads them from a copy under
+    # .shadow/, so the files the updater overwrites are never the locked ones - and the new folder
+    # is what lets a release that still loads them from the top level update to this one at all,
+    # since the archive no longer holds a single file that release has locked.
+    #
+    # Keep lib/ itself flat: ClearScript finds ClearScriptV8.win-x64.dll beside its own assembly.
+    $lib = Join-Path $pkg "lib"
+    New-Item -ItemType Directory -Path $lib | Out-Null
     $private = @(
         "ClearScript.Core.dll",
         "ClearScript.V8.dll",
@@ -182,7 +189,7 @@ try {
     foreach ($file in $private) {
         $path = Join-Path $outDir $file
         if (-not (Test-Path $path)) { throw "Dependency missing from the build output: $path" }
-        Copy-Item $path $pkg
+        Copy-Item $path $lib
     }
 
     # EventSource looks for data/actions.json and data/parser-ff.js beside the dll first, so the

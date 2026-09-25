@@ -472,7 +472,7 @@ namespace OverlayPluginAddon
             pipeline.Published += OnSnapshotPublished;
 
             var path = ResolveDataPath("parser-ff.js");
-            parser = new ParserHost(path, OnParserLog, OverlayAddon.PluginDirectory());
+            parser = new ParserHost(path, OnParserLog, PrivateAssemblies.Directory ?? OverlayAddon.PluginDirectory());
             parser.Collected += pipeline.Accept;
 
             // The parser ignores lines older than this. Live, that is now: ACT replays the tail of
@@ -481,7 +481,7 @@ namespace OverlayPluginAddon
 
             Log(LogLevel.Warning, "FFLogs parser did not start ({0}). rDPS columns will stay empty; the GCD columns are unaffected.", parser.LastError);
             if (parser.LastError.IndexOf("ClearScript", StringComparison.OrdinalIgnoreCase) >= 0)
-                Log(LogLevel.Error, "ClearScript could not be loaded. ClearScript.Core.dll, ClearScript.V8.dll, ClearScriptV8.win-x64.dll and ClearScript.V8.ICUData.dll all have to sit in the same folder as OverlayPluginAddon.dll - extract the whole release archive rather than just the dll.");
+                Log(LogLevel.Error, "ClearScript could not be loaded. ClearScript.Core.dll, ClearScript.V8.dll, ClearScriptV8.win-x64.dll and ClearScript.V8.ICUData.dll all have to sit in the lib folder beside OverlayPluginAddon.dll - extract the whole release archive rather than just the dll.");
             parser.Collected -= pipeline.Accept;
             parser.Dispose();
             parser = null;

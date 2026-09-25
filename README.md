@@ -126,7 +126,11 @@ FFLogs 用兩個不同的除數，這不是我們的慣例，是它上傳器自�
 
 **ACT 是用自己讀進來的位元組載入外掛的**，所以 CLR 根本不知道這個 dll 是從哪個資料夾來的，也就不會去那裡找它需要的東西。別的 addon 沒踩到是因為它們用的（ACT 自己的型別、OverlayPlugin 的、Newtonsoft）在它們執行時早就載好了；ClearScript 是我們自己帶的。
 
-[PrivateAssemblies.cs](OverlayPluginAddon/PrivateAssemblies.cs) 掛一個 `AssemblyResolve`，把 dll 旁邊的檔案按名字交出去。它刻意不引用 ACT 或 OverlayPlugin 的任何型別，這樣才載得起來、也才測得到。
+[PrivateAssemblies.cs](OverlayPluginAddon/PrivateAssemblies.cs) 掛一個 `AssemblyResolve`，把 `lib/` 裡的檔案按名字交出去。它刻意不引用 ACT 或 OverlayPlugin 的任何型別，這樣才載得起來、也才測得到。
+
+**交出去的是複本，不是 `lib/` 裡那份。** `LoadFrom` 會把 managed dll 開著直到行程結束，原生的 V8 被 `LoadLibrary` 映射住也一樣；而 OverlayPlugin 的更新器是在 ACT 還開著的時候逐檔「刪掉舊的、搬進新的」，刪到一個被鎖住的 `ClearScript.Core.dll` 就是 `UnauthorizedAccessException`，整次更新失敗。所以啟動時先把 `lib/` 複製到 `.shadow/<指紋>/`（指紋取自檔名、大小、修改時間，版本沒變就不重複複製），從那裡載入；舊版本的複本在下次啟動時刪掉。`lib/` 永遠沒人鎖，更新器可以直接覆蓋。
+
+0.4.0（含）以前是把這些檔案平放在 dll 旁邊、直接從那裡載入的。新的壓縮檔改放 `lib/`，檔名路徑一個都不重疊，所以舊版在跑的時候也能自動更新上來；更新後第一次啟動會把 dll 旁邊那批舊檔刪掉。
 
 `build.ps1` 裡那份清單少一個檔案不會降級，而是在解析器自己的執行緒上丟例外 —— 背景執行緒上沒人接的例外會**直接帶走整個 ACT**。所以那份清單是實測出來的：把 dll 從位元組載入、probing path 上什麼都沒有，一個一個補到能開為止（後面四個是傳遞相依，不試不會知道）。改動相依時照同樣方式驗一次。
 
@@ -221,13 +225,15 @@ node tools/Build-ActionData.js [xivanalysis 路徑]
 1. 解壓 `OverlayPluginAddon-X.Y.Z.zip` 到任意資料夾
 2. ACT → Plugins → Plugin Listing → Browse → 選 `OverlayPluginAddon.dll` → Add/Enable
 3. **載入順序必須是**：`FFXIV_ACT_Plugin.dll` → `OverlayPlugin.dll` → `OverlayPluginAddon.dll`
-4. **整包解開，不要只拿 dll。** `data/` 與十幾個 DLL 必須跟 `OverlayPluginAddon.dll` 放在同一層
+4. **整包解開，不要只拿 dll。** `data/` 與 `lib/`（十幾個 DLL）必須跟 `OverlayPluginAddon.dll` 放在同一層。執行時會在旁邊多出一個 `.shadow/`，那是實際載入的複本，刪掉也會自己重建
 
 mopimopi 端（[Unnbird/mopimopi](https://github.com/Unnbird/mopimopi)）在設定畫面把要的欄位勾起來即可。外掛啟動時會註冊 preset **MopiMopiCustom**，在 OverlayPlugin 的「新增懸浮窗」直接選就好。
 
 ### 自動更新
 
-每次 ACT 啟動時查一次 `Unnbird/OverlayPluginAddon` 的最新 release tag，比目前版本新才會詢問；按下同意才會下載 `OverlayPluginAddon-<version>.zip`，覆蓋 dll 與 `data/` 之後重啟 ACT。
+每次 ACT 啟動時查一次 `Unnbird/OverlayPluginAddon` 的最新 release tag，比目前版本新才會詢問；按下同意才會下載 `OverlayPluginAddon-<version>.zip`，覆蓋 dll、`lib/` 與 `data/` 之後重啟 ACT。
+
+0.4.0 與更早的版本之間自動更新會失敗（例如 0.3.0 → 0.4.0，`拒絕存取路徑 ...\ClearScript.Core.dll`）：那些版本直接從 dll 旁邊載入 ClearScript，檔案被 ACT 鎖住，更新器刪不掉。更新器是從字母順序第一個檔案開始、失敗就停，所以實際上什麼都沒被換掉，外掛照樣能用。關掉 ACT、手動把壓縮檔解開覆蓋即可；之後的版本（見〈相依組件要自己交出來〉）不會再有這個問題。
 
 ## 驗證流程
 
@@ -285,7 +291,7 @@ callOverlayHandler({ call: 'dumpGcdDiagnostics' })
 | `players identified : 0` | actor id 的欄位位置錯了 |
 | `action categories : ...could not be loaded` | 解析器資源還沒解壓，會自動重試；持續失敗代表載入順序不對 |
 | `recorded as GCD : 0` 但 `type 21` 有數字 | 21 行的欄位位置錯了，或分類表沒載到 |
-| `running : no` | `data/parser-ff.js` 或 ClearScript 的 DLL 不在 dll 旁邊 |
+| `running : no` | `data/parser-ff.js` 不在 dll 旁邊，或 ClearScript 的 DLL 不在 `lib/` 裡 |
 | `lines parsed : 0` 但 log 有行 | 解析器執行緒起來了卻沒收到東西 |
 | **`applied : False` 但 `fight` 有值** | **rDPS 欄位空白最常見的原因**：解析器有一場戰鬥，只是它不是 ACT 正在報的那一場。後面的括號會說是哪一條規則擋下來的 |
 | `downtime windows : 0` 但這場應該有 | 這張圖的 zone handler 用了沒認得的欄位形狀 |
@@ -318,7 +324,7 @@ OverlayPluginAddon/
     StatusTracker.cs        加速狀態與玩家判定
     ActionCategories.cs     從 FFXIV_ACT_Plugin.Resource 讀即時技能分類表
     ActionData.cs           每個技能的 recast / 詠唱時間 / 速度屬性
-  PrivateAssemblies.cs      把自己帶的組件交給 CLR（ACT 用位元組載入，不會去 dll 旁邊找）
+  PrivateAssemblies.cs      把 lib/ 的組件從 .shadow/ 複本交給 CLR（ACT 用位元組載入不會去找；複本讓更新器能覆蓋 lib/）
   Instrumentation.cs        診斷檔
 data/
   actions.json              recast 資料（tools/Build-ActionData.js 產生）

@@ -45,18 +45,34 @@ param([string] $stage, [string] $withResolver)
 $ErrorActionPreference = "Stop"
 try {
     $asm = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes("$stage\OverlayPluginAddon.dll"))
+    $nativeDir = $stage
     if ($withResolver -eq "yes") {
-        # What InitPlugin does once ACT has told it where the dll came from.
-        $asm.GetType("OverlayPluginAddon.PrivateAssemblies")::ResolveFrom($stage)
+        # What InitPlugin does once ACT has told it where the dll came from, and what StartParser
+        # then hands the parser.
+        $resolver = $asm.GetType("OverlayPluginAddon.PrivateAssemblies")
+        $resolver::ResolveFrom($stage)
+        if ($resolver::Directory) { $nativeDir = $resolver::Directory }
     }
     $hostType = $asm.GetType("OverlayPluginAddon.Fflogs.ParserHost")
-    $parser = [Activator]::CreateInstance($hostType, @([string]"$stage\data\parser-ff.js", $null, [string]$stage))
+    $parser = [Activator]::CreateInstance($hostType, @([string]"$stage\data\parser-ff.js", $null, [string]$nativeDir))
     $started = $parser.Start([long]1767225600000, 1)
     $lines = 0
     if ($started) {
         $parser.Feed("00|2026-01-01T00:00:00.0000000+00:00|0|Test|")
         Start-Sleep -Milliseconds 900
         $lines = $parser.LinesParsed
+
+        # Where everything actually came from, while it is all still loaded.
+        [AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { $_.GetName().Name -like "ClearScript*" } |
+            ForEach-Object { "LOADED $($_.Location)" }
+        [Diagnostics.Process]::GetCurrentProcess().Modules | Where-Object { $_.ModuleName -like "ClearScriptV8*" } |
+            ForEach-Object { "LOADED $($_.FileName)" }
+        if (Test-Path "$stage\lib") {
+            foreach ($file in Get-ChildItem "$stage\lib" -Filter *.dll) {
+                try { [IO.File]::Open($file.FullName, "Open", "Read", "None").Close() }
+                catch { "HELD $($file.Name)" }
+            }
+        }
     }
     $err = $parser.LastError
     $parser.Dispose()
@@ -89,6 +105,15 @@ $parsed = $withResolver.Text -match 'lines=[1-9]'
 Check "the child process exited cleanly" $withResolver.Exit 0
 Check "the parser started" $started "True"
 Check "and parsed a line" $parsed "True"
+
+# OverlayPlugin's updater deletes each shipped file and moves the new one in while ACT is running,
+# so anything loaded straight out of the package fails the next update with access denied.
+$loaded = @([regex]::Matches($withResolver.Text, '(?m)^LOADED (.+?)\s*$') | ForEach-Object { $_.Groups[1].Value })
+$outside = @($loaded | Where-Object { $_ -notlike "*\.shadow\*" })
+Check "the native V8 was loaded" (@($loaded | Where-Object { $_ -like "*ClearScriptV8*" }).Count -gt 0) "True"
+Check "all of ClearScript loaded from .shadow" $outside.Count 0
+Check "no shipped file is held open" ($withResolver.Text -match '(?m)^HELD ') "False"
+$outside | ForEach-Object { "     loaded from the package: $_" }
 if (-not $started) {
     Write-Host "  -- child output --" -ForegroundColor Yellow
     $withResolver.Text.Trim() -split "`n" | ForEach-Object { "     $_" }
@@ -108,6 +133,8 @@ Check "the process survived" $survived "True"
 Check "and said why" ($without.Text -match 'ClearScript') "True"
 
 Remove-Item $childPath -Force -ErrorAction SilentlyContinue
+# The copy the first child made; it has no business in a package that might get zipped again.
+Remove-Item (Join-Path $pkg ".shadow") -Recurse -Force -ErrorAction SilentlyContinue
 
 ""
 ""
