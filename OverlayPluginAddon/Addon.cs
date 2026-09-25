@@ -221,7 +221,7 @@ namespace OverlayPluginAddon
                 // protocol, not the modern one. The HOST_PORT parameter is spelled out because
                 // that is the placeholder OverlayPlugin substitutes the real socket address into;
                 // left off, MiniParseOverlay.Navigate() appends this exact value itself.
-                RegisterPreset(registry, "MopiMopiCustom", "https://unnbird.github.io/mopimopi/?HOST_PORT=ws://127.0.0.1/fake/");
+                RegisterPreset(registry, "MopiMopiCustom", "https://unnbird.github.io/mopimopi/v2/?HOST_PORT=ws://127.0.0.1/fake/");
             }
             catch (Exception ex)
             {

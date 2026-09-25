@@ -91,6 +91,27 @@ foreach ($c in $cases) {
 }
 
 ""
+"=============== what the category table gets wrong, and actions.json puts right ==============="
+# FFXIV files a Ninja's mudras and every Ninjutsu under category 4, "Ability" - correctly, they
+# are not weaponskills - yet they roll the GCD (0.5s, 1.5s). The category table alone therefore
+# cannot be the GCD test; EventSource.IsGcdAction asks xivanalysis' onGcd list first. This section
+# pins the disagreement so a resource update that changes it is noticed.
+$actionData = $asm.GetType("OverlayPluginAddon.ActionData").GetMethod("Load").Invoke($null, @([string](Join-Path $repo "data\actions.json")))
+$disagreements = @(
+    @{ id = 0x8D3;  name = "Ten (mudra)" },
+    @{ id = 0x8D5;  name = "Chi (mudra)" },
+    @{ id = 0x8DB;  name = "Raiton (Ninjutsu)" },
+    @{ id = 0x49B9; name = "Fuma Shuriken (Ten Chi Jin)" },
+    @{ id = 0x904E; name = "Forbidden Meditation (Monk)" }
+)
+foreach ($d in $disagreements) {
+    $byCategory = $isGcd.Invoke($present, @([uint32]$d.id))
+    $byXiva = $actionData.IsOnGcd([uint32]$d.id)
+    Check "$($d.name): category says oGCD" (-not $byCategory) "IsGcd=$byCategory"
+    Check "$($d.name): actions.json says GCD" $byXiva "IsOnGcd=$byXiva"
+}
+
+""
 if ($failures -gt 0) {
     Write-Host "==> $failures check(s) FAILED" -ForegroundColor Red
     exit 1

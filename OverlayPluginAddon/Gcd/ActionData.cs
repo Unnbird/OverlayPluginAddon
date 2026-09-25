@@ -59,6 +59,24 @@ namespace OverlayPluginAddon
         public int ActionCount => byId.Count;
         public int SpeedStatusCount => speedStatuses.Count;
 
+        /// <summary>
+        /// Every action xivanalysis flags as rolling the GCD, whatever FFXIV's own category says.
+        ///
+        /// The category table files a Ninja's mudras and every Ninjutsu under 4, "Ability" - and it
+        /// is right that they are not weaponskills - yet Ten, Chi, Raiton are 0.5s + 0.5s + 1.5s of
+        /// GCD. Asking the category alone left that whole stretch reading as a gap after Aeolian
+        /// Edge, charged as lost time on every single Ninjutsu, and a Ninja's uptime collapsed by
+        /// several points a minute. Monk's meditations and Samurai's Meditate are the same case.
+        /// A scan of every job found nothing the category calls a GCD that xivanalysis says is not,
+        /// so this list decides first and the category decides the rest.
+        /// </summary>
+        private readonly HashSet<uint> onGcd = new HashSet<uint>();
+
+        public int OnGcdCount => onGcd.Count;
+
+        /// <summary>Whether xivanalysis says the action rolls the GCD. False also for an id it does not list.</summary>
+        public bool IsOnGcd(uint actionId) => onGcd.Contains(actionId);
+
         /// <summary>The default every action not in the table follows.</summary>
         private static readonly ActionDef Default = new ActionDef
         {
@@ -132,6 +150,12 @@ namespace OverlayPluginAddon
                         }
                         data.speedStatusLimits[id.Value] = set;
                     }
+                }
+
+                foreach (var entry in root["onGcd"] ?? new JArray())
+                {
+                    var id = (uint?)entry;
+                    if (id != null) data.onGcd.Add(id.Value);
                 }
             }
             catch (Exception ex)

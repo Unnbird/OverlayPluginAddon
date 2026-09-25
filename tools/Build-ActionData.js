@@ -75,6 +75,11 @@ const speedAttr = (body) => {
 // ---------------------------------------------------------------- actions
 
 const actions = [];
+// Every action xivanalysis flags as rolling the GCD, whatever FFXIV's own category says. The
+// category files a Ninja's mudras and Ninjutsu (and Monk's meditations, Samurai's Meditate) under
+// "Ability", and the game data is right that they are not weaponskills - but they occupy the GCD,
+// which is the only question uptime asks.
+const onGcdIds = [];
 let scanned = 0;
 
 for (const file of fs.readdirSync(actionsDir).filter(f => f.endsWith('.ts'))) {
@@ -92,6 +97,7 @@ for (const file of fs.readdirSync(actionsDir).filter(f => f.endsWith('.ts'))) {
 		scanned++;
 
 		if (!bool(body, 'onGcd')) { continue; }
+		onGcdIds.push(id);
 
 		const gcdRecast = num(body, 'gcdRecast');
 		const cooldown = num(body, 'cooldown');
@@ -165,6 +171,7 @@ const table = {
 	_recast: 'Milliseconds the action occupies the GCD. Actions matching the 2500ms default AND scaling with a speed stat are omitted - the consumer assumes those.',
 	_speedAttribute: 'Absent means the recast does not scale with skill/spell speed at all (dance steps). Those intervals must not feed the speed estimate.',
 	_limitedTo: 'On a speed status: the only action ids it hastens. Absent means every GCD the player has.',
+	_onGcd: 'Every action id xivanalysis flags onGcd: true. Decides GCD-or-not ahead of the game category table, which files Ninja mudras/Ninjutsu, Monk meditations and Samurai Meditate as abilities although they roll the GCD.',
 
 	baseGcd: BASE_GCD,
 
@@ -174,12 +181,23 @@ const table = {
 
 	actions: actions.sort((a, b) => a.id - b.id),
 	speedStatuses: speedStatuses.sort((a, b) => a.id - b.id),
+	onGcd: Array.from(new Set(onGcdIds)).sort((a, b) => a - b),
 };
 
-fs.mkdirSync(path.dirname(outFile), { recursive: true });
-fs.writeFileSync(outFile, JSON.stringify(table, null, '\t'), 'utf8');
+// The id list is a few hundred numbers; sixteen to a line keeps the file readable and the diff
+// after a patch small.
+const json = JSON.stringify(table, null, '\t').replace(/"onGcd": \[[^\]]*\]/, () => {
+	const rows = [];
+	for (let i = 0; i < table.onGcd.length; i += 16) {
+		rows.push('\t\t' + table.onGcd.slice(i, i + 16).join(', '));
+	}
+	return '"onGcd": [\n' + rows.join(',\n') + '\n\t]';
+});
 
-console.log(`==> scanned ${scanned} actions, wrote ${actions.length} GCD overrides and ${speedStatuses.length} speed statuses`);
+fs.mkdirSync(path.dirname(outFile), { recursive: true });
+fs.writeFileSync(outFile, json, 'utf8');
+
+console.log(`==> scanned ${scanned} actions, wrote ${actions.length} GCD overrides, ${speedStatuses.length} speed statuses and ${table.onGcd.length} onGcd ids`);
 console.log(`    ${outFile}`);
 
 const byRecast = {};

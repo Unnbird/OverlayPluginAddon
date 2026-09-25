@@ -25,7 +25,7 @@ ACT log 讀取迴圈 (BeforeLogLineRead, originalLogLine)
                                      FightMatch        fight ↔ ACT encounter、兩個時鐘
                                      MeterSnapshot     折疊比對完的每一列
                                          │
-                                         └─→ GcdTracker.SetDowntimeWindows
+                                         └─→ GcdTracker.SetDowntimeWindows / SetFightEnd
                                   ↓
         CombatantData / EncounterData.ExportVariables
                                   ↓
@@ -165,15 +165,22 @@ FFLogs 用兩個不同的除數，這不是我們的慣例，是它上傳器自�
 
 代價：戰鬥開始到第一次按鍵之間不算（晚開的人不會被扣分）；最後一次按鍵之後的閒置要等下一次按鍵才會被算進去，中途倒地的人運轉率停在倒下那一刻。
 
+**戰鬥結束之後的按鍵不算這一場。** 解析器判定滅團或擊殺之後，會一直回報這場已結束的 fight，直到下一場開打；GCD 紀錄也要等到那時才重置（見 [PullBoundary.cs](OverlayPluginAddon/Fflogs/PullBoundary.cs)）。中間這段按的東西 —— 滅團後坐下來打坐存鬥氣的武僧、下一拉開怪前的預讀條 —— 本來會全部接在剛結束那一場的尾巴上：9/25 一場 M8S 滅團，武僧在解析器收場 6 秒後打坐一下，紀錄末端就多出一段 20 秒的空窗、18 秒記成 lost。所以 `GcdTracker.SetFightEnd` 跟 downtime 視窗一起在每次 collect 交過去，只量到 fight 結束的那一刻；之後的按鍵留在紀錄裡（詠唱中斷還得找得到它），但不進任何數字，status.log 的統計行會註明幾下沒算。
+
 **空窗（lost）** 對應 xivanalysis 的 downtime windows：`間隔 > recast + 150ms` 才算，150ms 是 100ms 詠唱稅加 50ms 抖動（`GCD_ERROR_OFFSET`）；硬詠唱後再多給 500ms 的滑步窗（`SLIDECAST_OFFSET`）。
 
 **recast 解析照 `CastTime.getAdjustedTime` 逐步走**：基礎 recast 已在 1500ms 地板的完全不動；否則套速度屬性 → 套加速 → 向下取到 10ms → 夾回地板。
 
 ### 怎麼分辨 GCD 和 oGCD
 
-`FFXIV_ACT_Plugin.Resource` 內嵌的 `ActionCategoryList` 就是 `技能id | 分類`：分類 2（魔法）與 3（戰技）是 GCD，1（自動攻擊）與 4（能力技）不是。
+兩個來源，先問 xivanalysis、再問遊戲的分類表（`EventSource.IsGcdAction`）：
 
-這份表**不打包進發布檔**，而是在執行期從解析器的組件直接讀：33000 多筆、每個改版都會變，跟著使用者實際在跑的版本走才不會過期。
+1. **xivanalysis 的 `onGcd` 旗標**：`data/actions.json` 的 `onGcd` 清單，約 490 個技能 id，由 `tools/Build-ActionData.js` 抽出。這是模型自己對「這一按會不會滾 GCD」的定義，有列出來的一律是 GCD。
+2. **`FFXIV_ACT_Plugin.Resource` 內嵌的 `ActionCategoryList`**：`技能id | 分類`，分類 2（魔法）與 3（戰技）是 GCD，1（自動攻擊）與 4（能力技）不是。xivanalysis 沒列的技能靠它 —— 包括改版新增、`actions.json` 還沒重抽的那些。
+
+**為什麼不能只看分類表**：忍者的結印（天・地・人）與所有忍術在遊戲資料裡都是分類 4「能力技」，但天→地→雷遁實際佔了 0.5 + 0.5 + 1.5 秒的 GCD。只看分類表會完全看不到這 2.5 秒，每一次忍術都記成一段空窗：9/13 一場實際的 pull 裡，忍者的運轉率讀 77.8%、其他人 95% 上下。武僧的三種打坐（1 秒 GCD）與武士的默想同理。全職業掃過一遍，xivanalysis 說是 GCD 而分類表說不是的只有這幾組（加上機工的火焰噴射器）；反過來、分類表說是 GCD 而 xivanalysis **明確**說不是的，一筆也沒有。
+
+分類表**不打包進發布檔**，而是在執行期從解析器的組件直接讀：33000 多筆、每個改版都會變，跟著使用者實際在跑的版本走才不會過期。
 
 ⚠️ 這個組件是 Costura 內嵌的，而且延遲載入。必須用 `Assembly.Load(name)` 主動要，才會觸發 Costura 把它交出來；載入失敗由每秒的 timer 重試，直到解析器準備好為止。讀不到時 GCD 欄位顯示 0 並在 log 留警告（`GCD uptime unavailable for now: ...`）。
 
@@ -251,6 +258,16 @@ mopimopi 端（[Unnbird/mopimopi](https://github.com/Unnbird/mopimopi)）在設�
 
 **改動任何 `Fflogs/` 底下的東西之後，都應該至少跑過一場真實 log。**
 
+GCD 那一半有自己的一份：
+
+```powershell
+.\tools\Replay-Gcd.ps1 <Network_*.log> -From 2026-09-22T23:24 -To 2026-09-22T23:41 -Player Bird
+```
+
+同一批行餵給同一套 StatusTracker / ActionCategories / GcdTracker，餵法跟事件來源一樣（詠唱條跟落地配對、按下當時的加速、用 actor id 分玩家與怪、解析器開新 fight 就重來），最後把解析器在同一份 log 上讀出的 downtime 區間交給追蹤器，印出**扣區間前後**兩張表，以及某個人所有超過 5 秒的間隔各有多少秒坐在區間裡（`down` 欄）。切片要包含這個副本的 `01` 換區行**和**王的 `03` AddCombatant 行（滅團後場地重置時重生，在下一次開怪前幾秒）；少了前者解析器沒有 zone handler，少了後者它認不出王，兩種情況都會回報 0 個區間。
+
+**GCD 與 downtime 各自的時鐘要一致**：追蹤器裡每一下按鍵的時間是 Unix epoch 毫秒（`GcdTracker.UnixMs`），因為解析器交過來的區間就是這個單位。曾經有一版用的是 .NET ticks 除以一萬（從西元 1 年起算的毫秒），兩邊差了四個數量級，區間永遠碰不到任何間隔；診斷檔照樣寫著三個區間、61 秒，逐 GCD 紀錄卻把 47 秒的過場記成 45 秒 lost，而單元測試因為用追蹤器自己的時鐘造區間所以全綠。Replay-Gcd 就是為了抓這種「每一半各自正確、合起來不對」的錯。
+
 ### 全部是 0？先跑診斷
 
 ```js
@@ -272,6 +289,9 @@ callOverlayHandler({ call: 'dumpGcdDiagnostics' })
 | `lines parsed : 0` 但 log 有行 | 解析器執行緒起來了卻沒收到東西 |
 | **`applied : False` 但 `fight` 有值** | **rDPS 欄位空白最常見的原因**：解析器有一場戰鬥，只是它不是 ACT 正在報的那一場。後面的括號會說是哪一條規則擋下來的 |
 | `downtime windows : 0` 但這場應該有 | 這張圖的 zone handler 用了沒認得的欄位形狀 |
+| `downtime windows` 有數字，但 status.log 裡過場那一行 `down 0.00`、`lost` 幾乎等於 `gap` | 區間到了追蹤器卻沒對上任何間隔：兩邊的時鐘不同單位。用 Replay-Gcd 重播那一場就看得到 |
+| status.log 統計行尾有 `pressed after the fight ended, not counted` | 正常。滅團或擊殺之後、下一場開打之前按的 GCD（打坐、預讀條）沒有算進這一場；`fight end for GCD` 那一行是它切在哪一刻 |
+| `actions.json : ... 0 onGcd ids` | `data/actions.json` 是舊檔，只換了 dll 沒換 data 資料夾：忍術、打坐、默想全被當成 oGCD，忍者與武僧的運轉率偏低 |
 
 檔案最後會附上幾條原始 log line 並逐欄編號，直接跟 [StatusTracker.cs](OverlayPluginAddon/Gcd/StatusTracker.cs) 和 [EventSource.cs](OverlayPluginAddon/EventSource.cs) 最上面的欄位常數對照即可。
 

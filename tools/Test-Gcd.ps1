@@ -116,6 +116,46 @@ Check "no phantom clip" $st.Clip 0 0.01
 Check "uptime 100%" ($st.Uptime * 100) 100 0.1
 
 ""
+"=============== 12b. Ninja: 2.12s job-haste GCD with mudras and Ninjutsu in it ==============="
+# The 15% job haste is not modelled separately; the estimate absorbs it and lands within one 45ms
+# batch of the 2.12s the tooltip says. Mudras (0.5s flat) and Ninjutsu (1.5s flat) sit inside
+# without voting on the estimate or leaving phantom gaps - provided they are recorded at all, which
+# is the next section's business.
+$TEN = 2259; $CHI = 2261; $RAITON = 2267
+$g = [Activator]::CreateInstance($gcdType, @($actionTable))
+$now = $t0
+for ($cycle = 0; $cycle -lt 6; $cycle++) {
+  for ($i = 0; $i -lt 3; $i++) { $g.Record("Nin2", $PLAIN, $now, 1.0, $false, $false); $now = $now.AddSeconds(2.12) }
+  $g.Record("Nin2", $TEN,    $now, 1.0, $false, $false); $now = $now.AddSeconds(0.5)
+  $g.Record("Nin2", $CHI,    $now, 1.0, $false, $false); $now = $now.AddSeconds(0.5)
+  $g.Record("Nin2", $RAITON, $now, 1.0, $false, $false); $now = $now.AddSeconds(1.5)
+}
+$g.Record("Nin2", $PLAIN, $now, 1.0, $false, $false)
+$st = $g.StatsFor("Nin2")
+Check "count"                        $st.Count 37 0
+Check "recast 2.12s, within a batch" $st.Recast 2.12 0.03
+Check "no phantom clip"              $st.Clip 0 0.01
+Check "uptime 100%"                  ($st.Uptime * 100) 100 0.1
+Check "only the weaponskills voted"  $st.SkillSpeedSamples 18 0
+
+""
+"=============== 12c. the mudras and Ninjutsu are GCDs although the game files them as abilities ==============="
+# FFXIV's ActionCategory for Ten/Chi/Jin and every Ninjutsu is 4, "Ability". Asked alone, the
+# category table saw Ten - Chi - Raiton as a 2.5s hole after Aeolian Edge and booked it as lost time
+# on every Ninjutsu: a real Ninja read 77.8% where the party read 95%. actions.json carries
+# xivanalysis' own onGcd flags, and EventSource.IsGcdAction asks them first.
+Check "actions.json lists onGcd ids"       $(if ($actions.OnGcdCount -gt 400) { 1 } else { 0 }) 1 0
+Check "Ten rolls the GCD"                  $(if ($actions.IsOnGcd([uint32]2259)) { 1 } else { 0 }) 1 0
+Check "Chi too"                            $(if ($actions.IsOnGcd([uint32]2261)) { 1 } else { 0 }) 1 0
+Check "and Raiton"                         $(if ($actions.IsOnGcd([uint32]2267)) { 1 } else { 0 }) 1 0
+Check "Fuma Shuriken under Ten Chi Jin"    $(if ($actions.IsOnGcd([uint32]18873)) { 1 } else { 0 }) 1 0
+Check "Monk's Forbidden Meditation"        $(if ($actions.IsOnGcd([uint32]36942)) { 1 } else { 0 }) 1 0
+Check "Samurai's Meditate"                 $(if ($actions.IsOnGcd([uint32]7497)) { 1 } else { 0 }) 1 0
+Check "Trick Attack does not"              $(if ($actions.IsOnGcd([uint32]2258)) { 1 } else { 0 }) 0 0
+Check "Kunai's Bane does not"              $(if ($actions.IsOnGcd([uint32]36957)) { 1 } else { 0 }) 0 0
+Check "a plain weaponskill is listed too"  $(if ($actions.IsOnGcd([uint32]2240)) { 1 } else { 0 }) 1 0
+
+""
 "=============== 13. haste: a 0.80 modifier shortens the GCD, not the score ==============="
 $g = [Activator]::CreateInstance($gcdType, @($actionTable))
 $now = $t0
@@ -432,8 +472,16 @@ function Windows { param([double[][]] $pairs)
   }
   return ,$arr
 }
-# Log time is the tracker's own clock: ticks/ms of the DateTime it was handed.
-function At { param([double] $seconds) return $t0.AddSeconds($seconds).Ticks / [double][TimeSpan]::TicksPerMillisecond }
+# The windows come in the parser's clock: Unix epoch milliseconds, stamped off the log lines. The
+# tracker has to keep its presses in the same clock or no window ever meets a gap - which is what
+# happened in the field, with three windows kept and a minute-long transition still charged as
+# clipping, while this very test passed by building its windows on the tracker's old clock.
+function At { param([double] $seconds) return [double]([DateTimeOffset]::new($t0.AddSeconds($seconds)).ToUnixTimeMilliseconds()) }
+
+$probe = [Activator]::CreateInstance($gcdType, @($actionTable))
+$probe.Record("Clock", $PLAIN, $t0.AddSeconds(30), 1.0, $false, $false)
+Check "the tracker's presses are in Unix milliseconds" $probe.StatsFor("Clock", $true).Trace[0].TimeMs (At 30) 0.001
+Check "not in .NET ticks" $(if ([Math]::Abs($probe.StatsFor("Clock", $true).Trace[0].TimeMs - $t0.AddSeconds(30).Ticks / 10000.0) -gt 1e12) { 1 } else { 0 }) 1 0
 
 # A clean 2.5s rotation, except that nothing was hittable from 60s to 107s and nobody pressed
 # anything in that window.
@@ -482,6 +530,39 @@ Check "empty range"          ($g.DowntimeBetween((At 50), (At 10)) / 1000) 0 0.0
 
 $emptyWindows = [Array]::CreateInstance($windowType, 0)
 Check "cleared" $(if ($g.SetDowntimeWindows($emptyWindows)) { $g.DowntimeBetween((At 0), (At 100)) } else { -1 }) 0 0.001
+
+""
+"=============== 18c. presses after the fight ended are not the fight's ==============="
+# The parser keeps reporting a finished fight until the next one opens, and the record is only
+# reset then - so whatever is pressed in between lands on the pull that just ended. A real one:
+# a 9/25 M8S wipe, one meditation six seconds after the parser closed the fight, 18s "lost".
+$g = [Activator]::CreateInstance($gcdType, @($actionTable))
+for ($s = 0.0; $s -lt 100; $s += 2.5) { $g.Record("Monk", $PLAIN, $t0.AddSeconds($s), 1.0, $false, $false) }
+$before = $g.StatsFor("Monk")
+# The wipe at 101s, then two presses well after it - recorded before anyone has said the fight ended.
+$g.Record("Monk", $PLAIN, $t0.AddSeconds(120), 1.0, $false, $false)
+$g.Record("Monk", $PLAIN, $t0.AddSeconds(121), 1.0, $false, $false)
+$st = $g.StatsFor("Monk")
+Check "before the end is known, the gap is charged"  $st.Clip 20.0 0.1
+$changed = $g.SetFightEnd([double](At 101))
+Check "the fight's end changes the measurement"      $(if ($changed) { 1 } else { 0 }) 1 0
+$st = $g.StatsFor("Monk")
+Check "the late presses are not counted"             $st.Count $before.Count 0
+Check "and are reported as such"                     $st.AfterEnd 2 0
+Check "nothing is lost at the end of the pull"       $st.Clip 0 0.01
+Check "uptime is the pull's"                         ($st.Uptime * 100) 100 0.01
+Check "the span ends at the last press in the fight" $st.ActiveSeconds $before.ActiveSeconds 0.01
+Check "the trace stops there too"                    $g.StatsFor("Monk", $true).Trace.Count $before.Count 0
+Check "setting the same end again changes nothing"   $(if ($g.SetFightEnd([double](At 101))) { 1 } else { 0 }) 0 0
+# A press at the very moment the fight ends is still the fight's.
+$g2 = [Activator]::CreateInstance($gcdType, @($actionTable))
+for ($s = 0.0; $s -le 100; $s += 2.5) { $g2.Record("Edge", $PLAIN, $t0.AddSeconds($s), 1.0, $false, $false) }
+[void]$g2.SetFightEnd([double](At 100))
+Check "a press at the very end is counted"           $g2.StatsFor("Edge").Count 41 0
+# The next fight opens: no end again, and the presses count (the reset then throws them away).
+Check "no end again is a change"                     $(if ($g.SetFightEnd($null)) { 1 } else { 0 }) 1 0
+$st = $g.StatsFor("Monk")
+Check "and the late presses count again"             $st.Count ($before.Count + 2) 0
 
 ""
 ""

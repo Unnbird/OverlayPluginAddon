@@ -79,7 +79,7 @@ namespace OverlayPluginAddon
             sb.AppendFormat("  export variables added    : {0}{1}", ExportVariablesRegistered, Environment.NewLine);
             sb.AppendFormat("  actions.json              : {0}{1}",
                 actionData == null ? "not loaded"
-                    : actionData.LoadError ?? string.Format("{0} recasts, {1} haste statuses", actionData.ActionCount, actionData.SpeedStatusCount),
+                    : actionData.LoadError ?? string.Format("{0} recasts, {1} haste statuses, {2} onGcd ids", actionData.ActionCount, actionData.SpeedStatusCount, actionData.OnGcdCount),
                 Environment.NewLine);
             sb.AppendFormat("  action categories         : {0}{1}",
                 categories == null ? "not loaded"
@@ -115,6 +115,11 @@ namespace OverlayPluginAddon
                 sb.AppendFormat("  downtime windows          : {0}{1}", meters.Downtime.Count, Environment.NewLine);
                 foreach (var window in meters.Downtime)
                     sb.AppendFormat("      {0:N1}s long{1}", window.Seconds, Environment.NewLine);
+                sb.AppendFormat("  fight end for GCD         : {0}{1}",
+                    meters.FightEnded
+                        ? DateTimeOffset.FromUnixTimeMilliseconds((long)meters.FightEndMs).LocalDateTime.ToString("HH:mm:ss.fff") + " (presses after it are not counted)"
+                        : "none, fight in progress",
+                    Environment.NewLine);
                 sb.AppendFormat("  rows                      : {0}{1}", string.Join(", ", meters.Names), Environment.NewLine);
             }
             sb.AppendLine();
@@ -165,9 +170,10 @@ namespace OverlayPluginAddon
                 {
                     entries++;
                     var st = gcds.StatsFor(player);
-                    sb.AppendFormat("    {0,-28} casts={1} uptime={2:0.0}% lost={3:0.0}s recast={4:0.00}s speedStat={5}{6}{7}",
+                    sb.AppendFormat("    {0,-28} casts={1} uptime={2:0.0}% lost={3:0.0}s recast={4:0.00}s speedStat={5}{6}{7}{8}",
                         player, st.Count, st.Uptime * 100, st.Clip, st.Recast, st.SpeedStat,
-                        st.RecastEstimated ? "" : " (default)", Environment.NewLine);
+                        st.RecastEstimated ? "" : " (default)",
+                        st.AfterEnd > 0 ? " afterEnd=" + st.AfterEnd : "", Environment.NewLine);
                 }
             }
             if (entries == 0) sb.AppendLine("    (empty)");

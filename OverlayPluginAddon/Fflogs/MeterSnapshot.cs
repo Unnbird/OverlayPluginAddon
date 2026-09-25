@@ -96,6 +96,22 @@ namespace OverlayPluginAddon.Fflogs
         public string Reason { get; private set; } = "no fight yet";
         public long FightId { get; private set; }
         public string FightState { get; private set; } = string.Empty;
+
+        /// <summary>
+        /// When the fight ended, in the parser's clock (Unix epoch milliseconds). Meaningful only
+        /// while <see cref="FightEnded"/>; handed to the GCD tracker beside the downtime windows.
+        /// </summary>
+        public double FightEndMs { get; private set; }
+
+        /// <summary>
+        /// Whether the parser has closed this fight - a wipe or a kill. It keeps reporting a finished
+        /// fight until the next one opens, and the GCD record is not reset in that gap (see
+        /// <see cref="PullBoundary"/>), so anything pressed then - a Monk meditating for chakra after
+        /// the wipe, a caster's pre-pull - would otherwise land on the pull that just ended.
+        /// </summary>
+        public bool FightEnded => FightId != 0 && FightState.Length > 0
+            && !string.Equals(FightState, "inprogress", StringComparison.Ordinal);
+
         public FightClocks Clocks { get; private set; }
         public bool HasHealing { get; private set; }
         public bool HasDeaths { get; private set; }
@@ -135,6 +151,7 @@ namespace OverlayPluginAddon.Fflogs
 
             snapshot.FightId = fight.Id;
             snapshot.FightState = fight.State;
+            snapshot.FightEndMs = fight.EndTimeMs;
             snapshot.HasHealing = fight.HasHealing;
             snapshot.HasDeaths = fight.HasDeaths;
             snapshot.Clocks = FightMatch.Clocks(fight);

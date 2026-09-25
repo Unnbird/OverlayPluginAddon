@@ -131,8 +131,8 @@ namespace OverlayPluginAddon
             if (actionData.LoadError != null)
                 Log(LogLevel.Warning, "actions.json failed to load ({0}). Every GCD will be treated as a plain 2.5s recast.", actionData.LoadError);
             else
-                Log(LogLevel.Info, "actions.json loaded: {0} recast overrides, {1} haste statuses.",
-                    actionData.ActionCount, actionData.SpeedStatusCount);
+                Log(LogLevel.Info, "actions.json loaded: {0} recast overrides, {1} haste statuses, {2} onGcd ids.",
+                    actionData.ActionCount, actionData.SpeedStatusCount, actionData.OnGcdCount);
 
             gcds = new GcdTracker(actionData);
 
@@ -286,7 +286,7 @@ namespace OverlayPluginAddon
                 // the cast bar fills, so waiting for the effect leaves uptime sagging for the whole
                 // cast and snapping back afterwards. When the effect does arrive it carries this
                 // same timestamp and is dropped as a duplicate.
-                if (gcds != null && categories != null && categories.Available && categories.IsGcd(actionId)
+                if (gcds != null && categories != null && categories.Available && IsGcdAction(actionId)
                     && statuses.IsPlayer(source))
                 {
                     SyncEncounter();
@@ -351,7 +351,7 @@ namespace OverlayPluginAddon
                 return;
             }
 
-            if (!categories.IsGcd(actionId)) { diag.AbilityLinesNotGcd++; return; }
+            if (!IsGcdAction(actionId)) { diag.AbilityLinesNotGcd++; return; }
 
             lock (gate)
             {
@@ -380,6 +380,21 @@ namespace OverlayPluginAddon
                 if (hardCast) diag.HardCastsRecorded++;
             }
         }
+
+        /// <summary>
+        /// Whether the action rolls the GCD.
+        ///
+        /// xivanalysis' own onGcd flag decides first. FFXIV files a Ninja's mudras and every
+        /// Ninjutsu under ActionCategory 4, "Ability" - correctly, they are not weaponskills - yet
+        /// Ten, Chi, Raiton are 0.5s + 0.5s + 1.5s of GCD, and asking the category alone left that
+        /// whole stretch reading as lost time, several points off every Ninja's uptime. Monk's
+        /// meditations and Samurai's Meditate are the same case; a scan of every job found no
+        /// action the category calls a GCD that xivanalysis says is not. The category table, read
+        /// live out of the parser, decides for everything xivanalysis does not list - which is how
+        /// an action added by a patch still counts before actions.json has been regenerated.
+        /// </summary>
+        private bool IsGcdAction(uint actionId) =>
+            (actionData != null && actionData.IsOnGcd(actionId)) || categories.IsGcd(actionId);
 
         /// <summary>
         /// Product of the haste statuses on an actor that apply to the action being pressed. Read
@@ -514,17 +529,20 @@ namespace OverlayPluginAddon
         }
 
         /// <summary>
-        /// The GCD half needs two things from each snapshot.
+        /// The GCD half needs three things from each snapshot.
         ///
         /// The downtime windows, or M8S' minute-long transition reads as a minute of clipping for
-        /// everyone. And the fight's identity: a new fight is a new pull and the tracker starts
-        /// over, which is the only reset that happens while the parser is supplying fights.
+        /// everyone. The fight's end, once the parser has closed it: the record is not reset until
+        /// the next fight opens, and a Monk meditating after the wipe is not part of the pull. And
+        /// the fight's identity: a new fight is a new pull and the tracker starts over, which is
+        /// the only reset that happens while the parser is supplying fights.
         /// </summary>
         private void OnSnapshotPublished(MeterSnapshot snapshot)
         {
             lock (gate)
             {
                 gcds?.SetDowntimeWindows(snapshot.Downtime);
+                gcds?.SetFightEnd(snapshot.FightEnded ? snapshot.FightEndMs : (double?)null);
 
                 if (!pull.NoteFight(snapshot.FightId)) return;
 
@@ -949,20 +967,24 @@ namespace OverlayPluginAddon
                             var gcd = gcds.StatsFor(player, includeTrace: true);
                             if (gcd.Count == 0) continue;
 
-                            sb.AppendFormat("    {0,-24} gcd: {1} casts, uptime {2:0.0}%, lost {3:0.0}s, recast {4:0.00}s (speed stat {5}, {6} skill / {7} spell samples){8}",
+                            sb.AppendFormat("    {0,-24} gcd: {1} casts, uptime {2:0.0}%, lost {3:0.0}s, recast {4:0.00}s (speed stat {5}, {6} skill / {7} spell samples){8}{9}",
                                 player, gcd.Count, gcd.Uptime * 100, gcd.Clip, gcd.Recast, gcd.SpeedStat,
                                 gcd.SkillSpeedSamples, gcd.SpellSpeedSamples,
-                                gcd.RecastEstimated ? "" : " - default, too few casts to measure");
+                                gcd.RecastEstimated ? "" : " - default, too few casts to measure",
+                                gcd.AfterEnd > 0 ? " - " + gcd.AfterEnd + " pressed after the fight ended, not counted" : "");
                             sb.AppendLine();
 
                             if (gcd.Trace != null)
                             {
                                 var first = gcd.Trace.Count > 0 ? gcd.Trace[0].TimeMs : 0;
-                                sb.AppendLine("        t(s)    action  cast  recast   gap   occupied  lost");
+                                // "down" is how much of the gap nothing could be hit. A transition
+                                // that reads gap 47.67, down 0.00, lost 45.21 is the windows not
+                                // reaching the tracker; gap 47.67, down 45.30, lost 0.00 is right.
+                                sb.AppendLine("        t(s)    action  cast  recast   gap   down   occupied  lost");
                                 foreach (var c in gcd.Trace)
-                                    sb.AppendFormat("        {0,6:0.00}  {1,6:X}  {2,-4}  {3,6:0.00}  {4,6:0.00}  {5,8:0.00}  {6,5:0.00}{7}",
+                                    sb.AppendFormat("        {0,6:0.00}  {1,6:X}  {2,-4}  {3,6:0.00}  {4,6:0.00}  {5,5:0.00}  {6,8:0.00}  {7,5:0.00}{8}",
                                         (c.TimeMs - first) / 1000.0, c.ActionId, c.HardCast ? "hard" : "inst",
-                                        c.RecastMs / 1000.0, c.GapMs / 1000.0, c.OccupiedMs / 1000.0, c.LostMs / 1000.0,
+                                        c.RecastMs / 1000.0, c.GapMs / 1000.0, c.DownMs / 1000.0, c.OccupiedMs / 1000.0, c.LostMs / 1000.0,
                                         Environment.NewLine);
                             }
                         }

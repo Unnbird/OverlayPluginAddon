@@ -57,6 +57,12 @@ namespace OverlayPluginAddon
 
         /// <summary>Every cast with the numbers that went into it. Filled only when asked for.</summary>
         public List<GcdCastTrace> Trace;
+
+        /// <summary>
+        /// Presses recorded after the fight ended, kept out of every number above. See
+        /// <see cref="GcdTracker.SetFightEnd"/>.
+        /// </summary>
+        public int AfterEnd;
     }
 
     /// <summary>
@@ -188,8 +194,11 @@ namespace OverlayPluginAddon
         /// <summary>Sorted, merged stretches when nothing could be hit. See SetDowntimeWindows.</summary>
         private IReadOnlyList<DowntimeWindow> windows = Array.Empty<DowntimeWindow>();
 
-        /// <summary>Bumped whenever the windows change, so a stored snapshot knows it is stale.</summary>
+        /// <summary>Bumped whenever the windows or the fight's end change, so a stored snapshot knows it is stale.</summary>
         private int windowsVersion;
+
+        /// <summary>When the fight ended, Unix ms; +infinity while it runs or nobody has said. See SetFightEnd.</summary>
+        private double fightEndMs = double.PositiveInfinity;
 
         public void Clear() => byPlayer.Clear();
 
@@ -220,9 +229,48 @@ namespace OverlayPluginAddon
             return true;
         }
 
+        /// <summary>
+        /// The moment the parser closed the fight - a wipe or a kill - or null while it is running.
+        ///
+        /// The record only starts over when the next fight opens (see PullBoundary), and between
+        /// the two the parser keeps reporting the finished fight, so whatever is pressed in that
+        /// gap would land on the pull that just ended. A Monk meditating for chakra six seconds
+        /// after a wipe put a 20s gap at the end of their record and charged 18s of it as lost.
+        /// Presses past the end stay recorded - a cancelled cast bar still has to find the press
+        /// it cancels - but the measurement stops at the last press inside the fight.
+        /// </summary>
+        /// <returns>Whether anything changed.</returns>
+        public bool SetFightEnd(double? endMs)
+        {
+            var value = endMs ?? double.PositiveInfinity;
+            if (value == fightEndMs) return false;
+            fightEndMs = value;
+            windowsVersion++;
+            return true;
+        }
+
         /// <summary>How much of [fromMs, toMs) nothing could be hit.</summary>
         public double DowntimeBetween(double fromMs, double toMs) =>
             DowntimeWindows.Between(windows, fromMs, toMs);
+
+        /// <summary>Ticks at 1970-01-01T00:00:00Z. .NET Framework has no DateTimeOffset.UnixEpoch.</summary>
+        private const long UnixEpochTicks = 621355968000000000L;
+
+        /// <summary>
+        /// A press's moment as Unix epoch milliseconds, fractional ticks kept.
+        ///
+        /// This is the clock the downtime windows arrive in: the parser stamps them from the log
+        /// lines' own timestamps as Unix milliseconds. The tracker used to keep .NET ticks over a
+        /// thousand instead - milliseconds since the year 1, some 6.4e13 - and the two never met,
+        /// so every window handed over was silently outside every gap and a minute-long transition
+        /// went on reading as a minute of clipping while the diagnostics showed three windows kept.
+        /// A test that built its windows on the tracker's own clock passed throughout.
+        ///
+        /// The de-duplication of a cast-start line against its effect compares two conversions of
+        /// the same DateTime, so exactness there survives the change of base.
+        /// </summary>
+        public static double UnixMs(DateTime when) =>
+            (new DateTimeOffset(when).UtcTicks - UnixEpochTicks) / (double)TimeSpan.TicksPerMillisecond;
 
         /// <summary>
         /// Records one GCD cast.
@@ -239,7 +287,7 @@ namespace OverlayPluginAddon
             if (!byPlayer.TryGetValue(player, out var state))
                 byPlayer[player] = state = new PlayerGcd();
 
-            var timeMs = when.Ticks / (double)TimeSpan.TicksPerMillisecond;
+            var timeMs = UnixMs(when);
 
             // An action that hits eight targets emits one line per target, sharing id and timestamp.
             if (state.LastActionId == actionId && state.LastTimeMs == timeMs) return;
@@ -410,8 +458,14 @@ namespace OverlayPluginAddon
         {
             var stats = new GcdStats { Recast = ActionData.BaseGcdMs / 1000.0 };
 
-            stats.Count = state.Casts.Count;
-            if (stats.Count == 0) return stats;
+            // Presses after the fight ended are not the fight's. They stay in the list (see
+            // SetFightEnd), but everything below stops at the last press inside the fight.
+            var count = state.Casts.Count;
+            while (count > 0 && state.Casts[count - 1].TimeMs > fightEndMs) count--;
+
+            stats.Count = count;
+            stats.AfterEnd = state.Casts.Count - count;
+            if (count == 0) return stats;
 
             var skillStat = EstimateStat(state.SkillSpeedIntervals);
             var spellStat = EstimateStat(state.SpellSpeedIntervals);
@@ -445,7 +499,7 @@ namespace OverlayPluginAddon
             double occupiedMs = 0;
             double clipMs = 0;
 
-            for (var i = 0; i + 1 < state.Casts.Count; i++)
+            for (var i = 0; i + 1 < count; i++)
             {
                 var cast = state.Casts[i];
                 var recast = OccupiedMs(cast, skillStat, spellStat, out var castGated);
@@ -475,7 +529,7 @@ namespace OverlayPluginAddon
             }
 
             // The newest cast, for the trace only: its recast is known, its gap is not yet.
-            var newest = state.Casts[state.Casts.Count - 1];
+            var newest = state.Casts[count - 1];
             trace?.Add(new GcdCastTrace
             {
                 ActionId = newest.ActionId, TimeMs = newest.TimeMs, HardCast = newest.HardCast,
